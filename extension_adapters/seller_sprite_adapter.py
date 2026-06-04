@@ -43,7 +43,7 @@ class SellerSpriteAdapter(BaseExtensionAdapter):
                     const body = document.body.innerText || '';
                     return keywords.some(kw => body.includes(kw));
                 }""",
-                timeout=8000,
+                timeout=20000,
             )
         except Exception:
             # Extension not present or didn't load in time — return empty
