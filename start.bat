@@ -98,7 +98,7 @@ echo.
 echo   Local address:  http://localhost:5000
 echo   Close this window to stop the app.
 echo.
-start "" /b powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process 'http://localhost:5000'"
+start "" /b powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process 'msedge.exe' 'http://localhost:5000'"
 "%VENV_PY%" main.py
 echo.
 echo The app has stopped.
