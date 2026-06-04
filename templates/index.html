@@ -3,163 +3,297 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Amazon 类目研究采集工具</title>
+  <title>Amazon 选品采集 · Product Research Collector</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body { font-family: 'Segoe UI', system-ui, sans-serif; }
-    #logBox {
-      font-family: 'Consolas', 'Menlo', monospace;
-      font-size: 0.8rem;
-      background: #0f172a;
-      color: #94a3b8;
-      height: 420px;
-      overflow-y: auto;
-      padding: 12px;
-      border-radius: 6px;
-      white-space: pre-wrap;
-      word-break: break-all;
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#fff7ed',100:'#ffedd5',500:'#f97316',600:'#ea580c',700:'#c2410c' },
+          },
+          fontFamily: { sans: ['Inter','Segoe UI','system-ui','sans-serif'] },
+        }
+      }
     }
-    #logBox .log-error   { color: #f87171; }
-    #logBox .log-success { color: #4ade80; }
-    #logBox .log-status  { color: #60a5fa; font-weight: 600; }
-    .badge-idle    { background:#e2e8f0; color:#475569; }
-    .badge-running { background:#fef3c7; color:#92400e; }
-    .badge-done    { background:#dcfce7; color:#166534; }
-    .badge-error   { background:#fee2e2; color:#991b1b; }
+  </script>
+  <style>
+    body { font-family: 'Inter','Segoe UI',system-ui,sans-serif; }
+    .step-dot { transition: all .3s ease; }
+    .fade-in { animation: fadeIn .35s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(8px);} to {opacity:1; transform:none;} }
+    #logBox {
+      font-family: 'JetBrains Mono','Consolas','Menlo',monospace;
+      font-size: .78rem; line-height: 1.5;
+      background: #0b1120; color: #94a3b8;
+      overflow-y: auto; padding: 14px; border-radius: 12px;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    #logBox .log-error   { color:#f87171; }
+    #logBox .log-success { color:#4ade80; }
+    #logBox .log-page    { color:#fbbf24; }
+    #logBox::-webkit-scrollbar { width:8px; }
+    #logBox::-webkit-scrollbar-thumb { background:#334155; border-radius:8px; }
+    .card { background:#fff; border-radius:18px; box-shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px -12px rgba(0,0,0,.12); }
+    .preset-card { transition: all .2s ease; cursor:pointer; }
+    .preset-card.active { border-color:#f97316; background:#fff7ed; box-shadow:0 0 0 3px rgba(249,115,22,.15); }
+    .progress-shimmer { background-size:200% 100%; animation: shimmer 1.5s linear infinite; }
+    @keyframes shimmer { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
+    input:focus, select:focus { outline:none; }
   </style>
 </head>
-<body class="bg-slate-100 min-h-screen">
+<body class="bg-gradient-to-br from-slate-50 to-orange-50 min-h-screen text-slate-800">
 
-<!-- Header -->
-<header class="bg-orange-500 text-white px-6 py-4 shadow-md">
-  <div class="max-w-7xl mx-auto flex items-center gap-3">
-    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M9 17v-6l-2-2V7a2 2 0 012-2h6a2 2 0 012 2v2l-2 2v6m-6 0h6"/>
-    </svg>
-    <div>
-      <h1 class="text-xl font-bold">Amazon 类目研究采集工具</h1>
-      <p class="text-orange-100 text-xs">本地浏览器驱动 · 支持卖家精灵 / SIF 扩展 · 导出 Excel</p>
+<!-- ============ HEADER ============ -->
+<header class="bg-white/80 backdrop-blur border-b border-slate-200 sticky top-0 z-20">
+  <div class="max-w-6xl mx-auto px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-brand-500 flex items-center justify-center text-white font-bold text-lg shadow">A</div>
+      <div>
+        <h1 class="font-bold text-slate-800 leading-tight">Amazon 选品采集工具</h1>
+        <p class="text-xs text-slate-400">本地浏览器自动采集 · 支持卖家精灵 / SIF · 一键导出 Excel</p>
+      </div>
     </div>
+    <a href="#help" onclick="openHelp(event)" class="text-sm text-slate-500 hover:text-brand-600 flex items-center gap-1.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      使用帮助
+    </a>
   </div>
 </header>
 
-<main class="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+<!-- ============ STEPPER ============ -->
+<div class="max-w-6xl mx-auto px-6 pt-6">
+  <div class="flex items-center justify-center gap-2 sm:gap-4 text-sm">
+    <div id="stepIndicator1" class="flex items-center gap-2">
+      <span class="step-dot w-7 h-7 rounded-full bg-brand-500 text-white flex items-center justify-center text-xs font-bold">1</span>
+      <span class="font-medium text-slate-700 hidden sm:inline">输入目标</span>
+    </div>
+    <div class="w-8 sm:w-16 h-0.5 bg-slate-200" id="stepLine1"></div>
+    <div id="stepIndicator2" class="flex items-center gap-2">
+      <span class="step-dot w-7 h-7 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs font-bold">2</span>
+      <span class="font-medium text-slate-400 hidden sm:inline">采集设置</span>
+    </div>
+    <div class="w-8 sm:w-16 h-0.5 bg-slate-200" id="stepLine2"></div>
+    <div id="stepIndicator3" class="flex items-center gap-2">
+      <span class="step-dot w-7 h-7 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs font-bold">3</span>
+      <span class="font-medium text-slate-400 hidden sm:inline">采集 & 导出</span>
+    </div>
+  </div>
+</div>
 
-  <!-- ===== LEFT: Input Form ===== -->
-  <section class="bg-white rounded-xl shadow p-6 space-y-5">
-    <h2 class="text-lg font-semibold text-slate-700 border-b pb-2">采集参数</h2>
+<main class="max-w-6xl mx-auto px-6 py-6">
 
-    <div>
-      <label class="block text-sm font-medium text-slate-600 mb-1">
-        Amazon 关键词 / 类目 URL <span class="text-red-500">*</span>
-      </label>
-      <input id="kwInput" type="text"
-             placeholder="e.g.  camping cot  或  https://www.amazon.com/s?k=..."
-             class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+  <!-- ====================== STEP 1: TARGET ====================== -->
+  <section id="step1" class="card p-7 fade-in">
+    <h2 class="text-xl font-bold text-slate-800 mb-1">第一步：你想采集什么？</h2>
+    <p class="text-sm text-slate-500 mb-6">输入一个产品关键词，或粘贴一个 Amazon 类目 / 搜索页链接。</p>
+
+    <label class="block text-sm font-semibold text-slate-700 mb-2">关键词 或 Amazon 链接</label>
+    <div class="relative">
+      <svg class="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input id="kwInput" type="text" autocomplete="off"
+             placeholder="例如：camping cot  或  https://www.amazon.com/s?k=..."
+             class="w-full border border-slate-300 rounded-xl pl-11 pr-4 py-3 text-[15px] focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+    </div>
+    <div class="mt-2 flex flex-wrap gap-2">
+      <span class="text-xs text-slate-400">试试：</span>
+      <button onclick="fillExample('camping cot')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-brand-100 rounded-full text-slate-600">camping cot</button>
+      <button onclick="fillExample('yoga mat')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-brand-100 rounded-full text-slate-600">yoga mat</button>
+      <button onclick="fillExample('standing desk')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-brand-100 rounded-full text-slate-600">standing desk</button>
     </div>
 
-    <div class="grid grid-cols-2 gap-4">
+    <label class="block text-sm font-semibold text-slate-700 mt-6 mb-2">选择站点 Marketplace</label>
+    <select id="marketplace"
+            class="w-full border border-slate-300 rounded-xl px-4 py-3 text-[15px] bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+      {% for key in marketplaces %}
+      <option value="{{ key }}" {% if key == 'amazon.com' %}selected{% endif %}>{{ key }}</option>
+      {% endfor %}
+    </select>
+
+    <div class="flex justify-end mt-7">
+      <button onclick="goStep(2)"
+              class="bg-brand-500 hover:bg-brand-600 text-white font-semibold px-6 py-3 rounded-xl shadow transition-colors flex items-center gap-2">
+        下一步
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ====================== STEP 2: SETTINGS ====================== -->
+  <section id="step2" class="card p-7 fade-in hidden">
+    <h2 class="text-xl font-bold text-slate-800 mb-1">第二步：采集规模</h2>
+    <p class="text-sm text-slate-500 mb-6">选择一个预设，或自定义。规模越大越慢。</p>
+
+    <!-- Presets -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+      <div class="preset-card border-2 border-slate-200 rounded-xl p-4" data-pages="2" data-products="40" onclick="selectPreset(this)">
+        <div class="text-2xl mb-1">⚡</div>
+        <div class="font-bold text-slate-800">快速 Quick</div>
+        <div class="text-xs text-slate-500 mt-1">约 40 个商品 · 2 页<br>最快出结果</div>
+      </div>
+      <div class="preset-card active border-2 border-brand-500 rounded-xl p-4" data-pages="5" data-products="100" onclick="selectPreset(this)">
+        <div class="text-2xl mb-1">⭐</div>
+        <div class="font-bold text-slate-800">标准 Standard</div>
+        <div class="text-xs text-slate-500 mt-1">约 100 个商品 · 5 页<br>推荐选择</div>
+      </div>
+      <div class="preset-card border-2 border-slate-200 rounded-xl p-4" data-pages="10" data-products="300" onclick="selectPreset(this)">
+        <div class="text-2xl mb-1">🔍</div>
+        <div class="font-bold text-slate-800">深度 Deep</div>
+        <div class="text-xs text-slate-500 mt-1">约 300 个商品 · 10 页<br>数据最全</div>
+      </div>
+    </div>
+
+    <!-- Custom sliders -->
+    <div class="grid grid-cols-2 gap-5 mb-5">
       <div>
-        <label class="block text-sm font-medium text-slate-600 mb-1">站点 Marketplace</label>
-        <select id="marketplace"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
-          {% for key in marketplaces %}
-          <option value="{{ key }}" {% if key == 'amazon.com' %}selected{% endif %}>{{ key }}</option>
-          {% endfor %}
-        </select>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">最大页数：<span id="maxPagesVal" class="text-brand-600">5</span></label>
+        <input id="maxPages" type="range" min="1" max="20" value="{{ max_pages_default }}" oninput="onSlider()"
+               class="w-full accent-brand-500" />
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-600 mb-1">最大页数 Max Pages</label>
-        <input id="maxPages" type="number" min="1" max="20" value="{{ max_pages_default }}"
-               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+        <label class="block text-sm font-semibold text-slate-700 mb-2">最大商品数：<span id="maxProductsVal" class="text-brand-600">100</span></label>
+        <input id="maxProducts" type="range" min="10" max="500" step="10" value="{{ max_products_default }}" oninput="onSlider()"
+               class="w-full accent-brand-500" />
       </div>
     </div>
 
-    <div>
-      <label class="block text-sm font-medium text-slate-600 mb-1">最大商品数 Max Products</label>
-      <input id="maxProducts" type="number" min="1" max="500" value="{{ max_products_default }}"
-             class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
-    </div>
+    <!-- Detail pages toggle -->
+    <label class="flex items-start gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100">
+      <input id="fetchDetails" type="checkbox" class="h-5 w-5 mt-0.5 accent-brand-500 rounded" />
+      <span>
+        <span class="font-semibold text-slate-700 text-sm">同时打开商品详情页</span>
+        <span class="block text-xs text-slate-500 mt-0.5">获取 BSR、上架时间、卖家等更多数据。会明显变慢，但数据更全。</span>
+      </span>
+    </label>
 
-    <div class="flex items-center gap-2">
-      <input id="fetchDetails" type="checkbox"
-             class="h-4 w-4 text-orange-500 border-slate-300 rounded" />
-      <label for="fetchDetails" class="text-sm text-slate-600">
-        同时打开详情页 (较慢，获取更多数据 / Opens detail pages — slower but richer data)
-      </label>
-    </div>
-
-    <details class="border border-slate-200 rounded-lg">
-      <summary class="px-4 py-2 text-sm font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-50">
-        Chrome 设置 (高级) ▾
+    <!-- Chrome advanced settings -->
+    <details class="mt-4 border border-slate-200 rounded-xl">
+      <summary class="px-4 py-3 text-sm font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-50 flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Chrome 高级设置（一般无需修改）
       </summary>
-      <div class="px-4 pb-4 pt-2 space-y-3">
+      <div class="px-4 pb-4 pt-1 space-y-3">
         <div>
-          <label class="block text-xs font-medium text-slate-500 mb-1">
-            Chrome 用户数据目录 User Data Dir
-          </label>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Chrome 用户数据目录</label>
           <input id="chromeDir" type="text" value="{{ default_chrome_dir }}"
-                 class="w-full border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400" />
-          <p class="text-xs text-slate-400 mt-1">
-            Windows: C:\Users\YourName\AppData\Local\Google\Chrome\User Data
-          </p>
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-500 mb-1">
-            Chrome 配置文件 Profile Name
-          </label>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Chrome 配置文件名</label>
           <input id="chromeProfile" type="text" value="{{ default_profile }}"
-                 class="w-full border border-slate-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-brand-500" />
         </div>
-        <p class="text-xs text-amber-600">
-          ⚠ 运行前请完全关闭 Chrome 浏览器，否则配置文件会被锁定。<br />
-          Close all Chrome windows before starting — Chrome cannot share a profile with another process.
-        </p>
       </div>
     </details>
 
-    <button id="startBtn" onclick="startCollection()"
-            class="w-full bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-semibold
-                   py-3 rounded-xl shadow transition-colors text-base tracking-wide">
-      🚀 开始采集
-    </button>
+    <div class="flex items-center justify-between mt-7">
+      <button onclick="goStep(1)" class="text-slate-500 hover:text-slate-700 font-medium px-4 py-3 flex items-center gap-1.5">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        上一步
+      </button>
+      <button onclick="goStep(3)"
+              class="bg-brand-500 hover:bg-brand-600 text-white font-semibold px-6 py-3 rounded-xl shadow transition-colors flex items-center gap-2">
+        下一步
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
   </section>
 
-  <!-- ===== RIGHT: Progress & Results ===== -->
-  <section class="bg-white rounded-xl shadow p-6 space-y-4 flex flex-col">
-    <div class="flex items-center justify-between border-b pb-2">
-      <h2 class="text-lg font-semibold text-slate-700">采集进度</h2>
-      <div class="flex items-center gap-3">
-        <span id="productCount" class="text-sm text-slate-500"></span>
-        <span id="statusBadge"
-              class="badge-idle text-xs font-semibold px-2.5 py-1 rounded-full">
-          待机 Idle
-        </span>
+  <!-- ====================== STEP 3: RUN & MONITOR ====================== -->
+  <section id="step3" class="fade-in hidden">
+    <!-- Summary + start -->
+    <div id="reviewCard" class="card p-6 mb-5">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex-1">
+          <h2 class="text-lg font-bold text-slate-800 mb-3">确认并开始</h2>
+          <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            <div><span class="text-slate-400">目标：</span><span id="rvTarget" class="font-semibold text-slate-700">—</span></div>
+            <div><span class="text-slate-400">站点：</span><span id="rvMarket" class="font-semibold text-slate-700">—</span></div>
+            <div><span class="text-slate-400">规模：</span><span id="rvScale" class="font-semibold text-slate-700">—</span></div>
+            <div><span class="text-slate-400">详情页：</span><span id="rvDetails" class="font-semibold text-slate-700">—</span></div>
+          </div>
+        </div>
+        <button id="startBtn" onclick="startCollection()"
+                class="bg-brand-500 hover:bg-brand-600 text-white font-bold px-8 py-4 rounded-xl shadow-lg text-lg flex items-center gap-2 whitespace-nowrap">
+          🚀 开始采集
+        </button>
+      </div>
+      <div class="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
+        <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z"/></svg>
+        开始前请<strong>完全关闭 Chrome 浏览器</strong>，否则配置文件会被锁定无法启动。
       </div>
     </div>
 
-    <!-- Log output -->
-    <div id="logBox" class="flex-1"></div>
-
-    <!-- Download button (hidden until done) -->
-    <div id="downloadSection" class="hidden">
-      <a id="downloadBtn" href="#"
-         class="flex items-center justify-center gap-2 w-full bg-green-500 hover:bg-green-600
-                text-white font-semibold py-3 rounded-xl shadow transition-colors text-base">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/>
-        </svg>
-        下载 Excel
-      </a>
+    <!-- Live stats -->
+    <div class="grid grid-cols-3 gap-4 mb-5">
+      <div class="card p-4 text-center">
+        <div id="statProducts" class="text-3xl font-bold text-brand-600">0</div>
+        <div class="text-xs text-slate-400 mt-1">已采集商品</div>
+      </div>
+      <div class="card p-4 text-center">
+        <div id="statPages" class="text-3xl font-bold text-slate-700">0</div>
+        <div class="text-xs text-slate-400 mt-1">已扫描页数</div>
+      </div>
+      <div class="card p-4 text-center">
+        <div id="statTime" class="text-3xl font-bold text-slate-700">0s</div>
+        <div class="text-xs text-slate-400 mt-1">已用时</div>
+      </div>
     </div>
 
-    <!-- Error message -->
-    <div id="errorMsg" class="hidden bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3"></div>
-  </section>
+    <!-- Progress bar -->
+    <div class="card p-5 mb-5">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-semibold text-slate-700">采集进度</span>
+        <span id="statusBadge" class="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-500">待机 Idle</span>
+      </div>
+      <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+        <div id="progressBar" class="h-3 rounded-full bg-gradient-to-r from-brand-400 to-brand-600 progress-shimmer" style="width:0%"></div>
+      </div>
+    </div>
 
+    <!-- Log console -->
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-green-400"></span> 实时日志
+        </span>
+        <button onclick="goStep(2)" id="backToSettings" class="text-xs text-slate-400 hover:text-slate-600">← 修改设置</button>
+      </div>
+      <div id="logBox" class="h-72"></div>
+
+      <!-- Download -->
+      <div id="downloadSection" class="hidden mt-4">
+        <a id="downloadBtn" href="#"
+           class="flex items-center justify-center gap-2 w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg text-lg transition-colors">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+          下载 Excel 文件
+        </a>
+        <button onclick="resetAll()" class="w-full mt-2 text-sm text-slate-400 hover:text-slate-600 py-2">开始新的采集 →</button>
+      </div>
+
+      <div id="errorMsg" class="hidden mt-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3"></div>
+    </div>
+  </section>
 </main>
+
+<!-- ============ HELP MODAL ============ -->
+<div id="helpModal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onclick="closeHelp(event)">
+  <div class="bg-white rounded-2xl max-w-lg w-full p-6 max-h-[85vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-bold text-slate-800">使用帮助</h3>
+      <button onclick="closeHelp()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+    </div>
+    <ol class="space-y-3 text-sm text-slate-600 list-decimal pl-5">
+      <li><strong>关闭 Chrome：</strong>开始采集前，请完全退出所有 Chrome 窗口（任务管理器里也不要有 chrome.exe）。</li>
+      <li><strong>输入目标：</strong>填一个产品关键词，或粘贴 Amazon 搜索/类目页链接。</li>
+      <li><strong>选择规模：</strong>新手建议用「标准」预设。</li>
+      <li><strong>开始采集：</strong>程序会自动打开你的 Chrome（带卖家精灵 / SIF 扩展），逐页采集。</li>
+      <li><strong>下载结果：</strong>状态变绿后，点「下载 Excel」。</li>
+    </ol>
+    <p class="text-xs text-slate-400 mt-4">扩展数据（月销量、搜索量等）依赖卖家精灵 / SIF 在页面注入的数据；若未采到会留空。</p>
+    <button onclick="closeHelp()" class="mt-5 w-full bg-brand-500 hover:bg-brand-600 text-white font-semibold py-2.5 rounded-xl">知道了</button>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>
