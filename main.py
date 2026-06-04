@@ -1,0 +1,380 @@
+"""
+Amazon Category Research Tool — Flask entry point.
+
+Run with: python main.py
+Then open http://localhost:5000 in your browser.
+"""
+import json
+import logging
+import os
+import queue
+import threading
+import uuid
+from datetime import datetime
+
+from flask import Flask, Response, jsonify, render_template, request, send_file
+from flask import stream_with_context
+
+# Load .env before importing config
+from dotenv import load_dotenv
+load_dotenv()
+
+import config
+from browser_automation import BrowserController
+from amazon_scraper import (
+    build_search_url,
+    build_paginated_url,
+    is_category_url,
+    parse_search_results,
+    parse_product_detail,
+)
+from exporters.excel_exporter import export as export_excel, generate_output_filename
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+# -------------------------------------------------------------------------
+# In-memory task store
+# -------------------------------------------------------------------------
+# task_id -> {status, log_queue, log, products, excel_path, error}
+tasks: dict = {}
+tasks_lock = threading.Lock()
+
+
+def _new_task() -> str:
+    task_id = str(uuid.uuid4())
+    with tasks_lock:
+        tasks[task_id] = {
+            "status": "running",       # running | done | error
+            "log": [],                 # list of log strings (for /status fallback)
+            "log_queue": queue.Queue(),# live queue for SSE
+            "products": [],
+            "excel_path": None,
+            "error": None,
+        }
+    return task_id
+
+
+def _log(task_id: str, message: str):
+    """Append a log message to both the list and the live queue."""
+    with tasks_lock:
+        task = tasks.get(task_id)
+        if not task:
+            return
+        task["log"].append(message)
+        task["log_queue"].put(message)
+    logger.info(f"[{task_id[:8]}] {message}")
+
+
+def _finish(task_id: str, excel_path: str, products: list):
+    with tasks_lock:
+        task = tasks.get(task_id)
+        if not task:
+            return
+        task["status"] = "done"
+        task["excel_path"] = excel_path
+        task["products"] = products
+        task["log_queue"].put("STATUS:done")
+        task["log_queue"].put(None)   # sentinel — SSE stream ends
+
+
+def _fail(task_id: str, error: str):
+    with tasks_lock:
+        task = tasks.get(task_id)
+        if not task:
+            return
+        task["status"] = "error"
+        task["error"] = error
+        task["log_queue"].put(f"ERROR: {error}")
+        task["log_queue"].put("STATUS:error")
+        task["log_queue"].put(None)
+
+
+# -------------------------------------------------------------------------
+# Collection worker (runs in a background thread)
+# -------------------------------------------------------------------------
+
+def run_collection(task_id: str, params: dict):
+    """
+    Main data collection worker executed in a background thread.
+
+    params keys:
+        keyword_or_url  str
+        marketplace     str  (key from config.MARKETPLACES)
+        max_pages       int
+        max_products    int
+        fetch_details   bool
+        chrome_user_data_dir  str
+        chrome_profile  str
+    """
+    keyword_or_url: str = params.get("keyword_or_url", "").strip()
+    marketplace_key: str = params.get("marketplace", "amazon.com")
+    max_pages: int = int(params.get("max_pages", config.MAX_PAGES_DEFAULT))
+    max_products: int = int(params.get("max_products", config.MAX_PRODUCTS_DEFAULT))
+    fetch_details: bool = bool(params.get("fetch_details", False))
+    chrome_user_data_dir: str = params.get(
+        "chrome_user_data_dir",
+        os.environ.get("CHROME_USER_DATA_DIR", config.get_default_chrome_user_data_dir()),
+    )
+    chrome_profile: str = params.get(
+        "chrome_profile",
+        os.environ.get("CHROME_PROFILE", config.DEFAULT_CHROME_PROFILE),
+    )
+
+    marketplace_url = config.MARKETPLACES.get(marketplace_key, "https://www.amazon.com")
+    all_products: list = []
+    browser: BrowserController | None = None
+
+    try:
+        _log(task_id, f"初始化浏览器 / Initializing browser …")
+        _log(task_id, f"Chrome profile: {chrome_user_data_dir} [{chrome_profile}]")
+
+        browser = BrowserController(
+            chrome_user_data_dir=chrome_user_data_dir,
+            chrome_profile=chrome_profile,
+            headless=False,
+        )
+        browser.launch()
+        _log(task_id, "浏览器启动成功 / Browser launched successfully.")
+
+        # Determine whether input is a URL or a keyword
+        if keyword_or_url.startswith("http://") or keyword_or_url.startswith("https://"):
+            base_url = keyword_or_url
+            is_keyword = False
+            _log(task_id, f"模式: URL采集 / Mode: URL scraping — {base_url}")
+        else:
+            base_url = None
+            is_keyword = True
+            _log(task_id, f"模式: 关键词搜索 / Mode: keyword search -- \"{keyword_or_url}\" on {marketplace_url}")
+
+        for page_num in range(1, max_pages + 1):
+            if is_keyword:
+                page_url = build_search_url(keyword_or_url, marketplace_url, page_num)
+            else:
+                page_url = build_paginated_url(base_url, page_num)
+
+            _log(task_id, f"第 {page_num} 页 / Page {page_num}: {page_url}")
+
+            try:
+                browser.navigate(page_url)
+            except Exception as nav_err:
+                _log(task_id, f"  导航失败 / Navigation failed: {nav_err}")
+                break
+
+            browser.scroll_to_bottom()
+            html = browser.get_page_html()
+
+            page_products = parse_search_results(html, page_url, page_num)
+            _log(task_id, f"  解析到 {len(page_products)} 个商品 / Parsed {len(page_products)} products")
+
+            if not page_products:
+                _log(task_id, "  未找到商品，停止翻页 / No products found, stopping pagination.")
+                break
+
+            # Optionally fetch detail pages for richer data
+            if fetch_details:
+                for idx, product in enumerate(page_products):
+                    if len(all_products) + idx >= max_products:
+                        break
+                    detail_url = product.get("product_url", "")
+                    if not detail_url or not product.get("asin"):
+                        continue
+                    try:
+                        _log(task_id, f"  详情页 {idx+1}/{len(page_products)}: {product['asin']}")
+                        browser.navigate(detail_url)
+                        browser.scroll_to_bottom()
+                        detail_html = browser.get_page_html()
+                        detail_data = parse_product_detail(detail_html, product["asin"])
+                        # Merge detail data into product dict (detail wins for non-empty values)
+                        for key, val in detail_data.items():
+                            if val:
+                                product[key] = val
+                        browser.wait(config.REQUEST_DELAY_MIN, config.REQUEST_DELAY_MAX)
+                    except Exception as detail_err:
+                        _log(task_id, f"    详情页错误 / Detail page error: {detail_err}")
+
+            all_products.extend(page_products)
+            total = len(all_products)
+            _log(task_id, f"  累计采集 / Total collected: {total} 个商品")
+
+            if total >= max_products:
+                _log(task_id, f"已达到最大采集数量 {max_products}，停止 / Reached max {max_products}, stopping.")
+                break
+
+            if page_num < max_pages:
+                browser.wait(config.REQUEST_DELAY_MIN, config.REQUEST_DELAY_MAX)
+
+        # Trim to max_products
+        all_products = all_products[:max_products]
+        _log(task_id, f"采集完成 / Collection complete. 共 {len(all_products)} 个商品。")
+
+        # Export to Excel
+        _log(task_id, "正在导出 Excel / Exporting to Excel …")
+        output_path = generate_output_filename(keyword_or_url, config.OUTPUT_DIR)
+        export_excel(all_products, output_path)
+        _log(task_id, f"Excel 已保存 / Excel saved: {os.path.basename(output_path)}")
+
+        _finish(task_id, output_path, all_products)
+
+    except RuntimeError as rte:
+        # RuntimeError from BrowserController carries user-friendly messages
+        error_msg = str(rte)
+        _log(task_id, f"错误 / Error: {error_msg}")
+        _fail(task_id, error_msg)
+    except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
+        _log(task_id, f"意外错误 / Unexpected error: {exc}")
+        logger.error(tb)
+        _fail(task_id, str(exc))
+    finally:
+        if browser is not None:
+            try:
+                browser.close()
+                _log(task_id, "浏览器已关闭 / Browser closed.")
+            except Exception:
+                pass
+
+
+# -------------------------------------------------------------------------
+# Flask routes
+# -------------------------------------------------------------------------
+
+@app.route("/")
+def index():
+    return render_template(
+        "index.html",
+        marketplaces=config.MARKETPLACES,
+        default_chrome_dir=config.get_default_chrome_user_data_dir(),
+        default_profile=config.DEFAULT_CHROME_PROFILE,
+        max_pages_default=config.MAX_PAGES_DEFAULT,
+        max_products_default=config.MAX_PRODUCTS_DEFAULT,
+    )
+
+
+@app.route("/start", methods=["POST"])
+def start():
+    """Start a new collection task. Returns {task_id}."""
+    data = request.get_json(force=True, silent=True) or {}
+
+    keyword_or_url = data.get("keyword_or_url", "").strip()
+    if not keyword_or_url:
+        return jsonify({"error": "keyword_or_url is required"}), 400
+
+    task_id = _new_task()
+    params = {
+        "keyword_or_url": keyword_or_url,
+        "marketplace": data.get("marketplace", "amazon.com"),
+        "max_pages": data.get("max_pages", config.MAX_PAGES_DEFAULT),
+        "max_products": data.get("max_products", config.MAX_PRODUCTS_DEFAULT),
+        "fetch_details": data.get("fetch_details", False),
+        "chrome_user_data_dir": data.get(
+            "chrome_user_data_dir",
+            os.environ.get("CHROME_USER_DATA_DIR", config.get_default_chrome_user_data_dir()),
+        ),
+        "chrome_profile": data.get(
+            "chrome_profile",
+            os.environ.get("CHROME_PROFILE", config.DEFAULT_CHROME_PROFILE),
+        ),
+    }
+
+    thread = threading.Thread(
+        target=run_collection,
+        args=(task_id, params),
+        daemon=True,
+        name=f"collector-{task_id[:8]}",
+    )
+    thread.start()
+
+    return jsonify({"task_id": task_id})
+
+
+@app.route("/progress/<task_id>")
+def progress(task_id: str):
+    """
+    Server-Sent Events stream of log lines for the given task.
+    Each message is a plain text line (event.data in JavaScript).
+    The stream ends when the task completes or errors.
+    """
+    with tasks_lock:
+        task = tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "task not found"}), 404
+
+    log_queue = task["log_queue"]
+
+    def generate():
+        while True:
+            try:
+                message = log_queue.get(timeout=30)
+            except queue.Empty:
+                # Send a keep-alive comment to prevent proxy timeouts
+                yield "data: \n\n"
+                continue
+
+            if message is None:
+                # Sentinel: stream is done
+                break
+            yield f"data: {message}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.route("/status/<task_id>")
+def status(task_id: str):
+    """Return current task status as JSON (polling fallback)."""
+    with tasks_lock:
+        task = tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "task not found"}), 404
+
+    return jsonify({
+        "status": task["status"],
+        "product_count": len(task["products"]),
+        "error": task["error"],
+        "log_tail": task["log"][-20:],  # last 20 log lines
+    })
+
+
+@app.route("/download/<task_id>")
+def download(task_id: str):
+    """Download the Excel file produced by a completed task."""
+    with tasks_lock:
+        task = tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "task not found"}), 404
+
+    excel_path = task.get("excel_path")
+    if not excel_path or not os.path.exists(excel_path):
+        return jsonify({"error": "Excel file not ready or not found"}), 404
+
+    return send_file(
+        excel_path,
+        as_attachment=True,
+        download_name=os.path.basename(excel_path),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+# -------------------------------------------------------------------------
+# Entry point
+# -------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    print("Amazon Category Research Tool")
+    print("Open http://localhost:5000 in your browser.")
+    print("Press Ctrl+C to stop.")
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

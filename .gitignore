@@ -1,18 +1,40 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
 .venv/
 venv/
 env/
+ENV/
 
 # Environment / secrets
 .env
 
-# OS / editor
-.DS_Store
+# Exports (generated Excel files)
+exports/
+output/
+*.xlsx
+
+# Playwright
+playwright/.local-browsers/
+
+# IDE
 .idea/
 .vscode/
+*.swp
+*.swo
 
-# Temp files
-*.tmp
-/tmp/
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini

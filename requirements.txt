@@ -1,4 +1,6 @@
 flask
-anthropic
+playwright
+beautifulsoup4
 openpyxl
 python-dotenv
+lxml
