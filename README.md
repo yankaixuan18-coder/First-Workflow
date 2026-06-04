@@ -6,6 +6,30 @@ A local browser automation tool for Amazon category research. Drives your real C
 
 ---
 
+## 🚀 一键启动 / One-Click Start (recommended)
+
+You do **not** need to run any commands manually.
+
+| OS | What to do |
+|----|-----------|
+| **Windows** | Double-click **`start.bat`** |
+| **Mac / Linux** | Run `chmod +x start.sh` once, then double-click / run **`./start.sh`** |
+
+The launcher automatically:
+1. Checks that Python is installed (and tells you where to get it if not)
+2. Creates a virtual environment (`.venv`) on first run
+3. Installs all dependencies from `requirements.txt` + the browser driver
+4. Creates your `.env` config from the template (opens Notepad on Windows so you can set your Chrome path)
+5. Starts the local web app and **opens your browser** at http://localhost:5000
+
+On later runs it skips the install steps and starts instantly. To stop the app, just close the launcher window.
+
+> ⚠️ **Close all Chrome windows before collecting** — Chrome cannot share a profile with another process.
+
+The manual setup below is only needed if you prefer to run things yourself.
+
+---
+
 ## Prerequisites
 
 | Requirement | Notes |
