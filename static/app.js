@@ -192,6 +192,7 @@ async function startCollection() {
   document.getElementById('progressBar').style.width = '0%';
   document.getElementById('progressBar').classList.add('progress-shimmer');
   document.getElementById('downloadSection').classList.add('hidden');
+  document.getElementById('previewSection').classList.add('hidden');
 
   const btn = document.getElementById('startBtn');
   btn.disabled = true;
@@ -273,9 +274,57 @@ function finishDone(taskId) {
   setProgressComplete();
   appendLog('✅ 采集完成，可以下载了！', 'log-success');
   showDownloadButton(taskId);
+  loadPreview(taskId);
   resetStartButton();
   stopStreams();
   stopTimer();
+}
+
+// ---------------------------------------------------------------------------
+// Results preview table
+// ---------------------------------------------------------------------------
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function loadPreview(taskId) {
+  try {
+    const resp = await fetch(`/results/${taskId}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const rows = data.products || [];
+    if (!rows.length) return;
+
+    const body = document.getElementById('previewBody');
+    body.innerHTML = '';
+    rows.forEach((p, i) => {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-orange-50';
+      const img = p.main_image_url
+        ? `<img src="${escapeHtml(p.main_image_url)}" class="w-9 h-9 object-contain rounded" loading="lazy" onerror="this.style.display='none'">`
+        : '';
+      const titleCell = p.product_url
+        ? `<a href="${escapeHtml(p.product_url)}" target="_blank" rel="noopener" class="text-slate-700 hover:text-brand-600 line-clamp-2">${escapeHtml(p.title) || '—'}</a>`
+        : `<span class="text-slate-700">${escapeHtml(p.title) || '—'}</span>`;
+      tr.innerHTML =
+        `<td class="px-2 py-2 text-slate-400">${i + 1}</td>` +
+        `<td class="px-2 py-1.5">${img}</td>` +
+        `<td class="px-2 py-2 font-mono text-[11px] text-slate-500">${escapeHtml(p.asin) || '—'}</td>` +
+        `<td class="px-2 py-2 max-w-[240px]">${titleCell}</td>` +
+        `<td class="px-2 py-2 text-slate-600">${escapeHtml(p.brand) || '—'}</td>` +
+        `<td class="px-2 py-2 text-slate-800 font-semibold whitespace-nowrap">${escapeHtml(p.price) || '—'}</td>` +
+        `<td class="px-2 py-2 text-amber-600">${escapeHtml(p.rating) || '—'}</td>` +
+        `<td class="px-2 py-2 text-slate-600">${escapeHtml(p.review_count) || '—'}</td>` +
+        `<td class="px-2 py-2"><span class="text-[11px] px-1.5 py-0.5 rounded ${p.fulfillment ? 'bg-slate-100 text-slate-600' : ''}">${escapeHtml(p.fulfillment) || '—'}</span></td>` +
+        `<td class="px-2 py-2 text-green-600 font-medium">${escapeHtml(p.seller_sprite_monthly_sales) || '—'}</td>` +
+        `<td class="px-2 py-2 text-slate-400">${escapeHtml(p.page_number) || ''}</td>`;
+      body.appendChild(tr);
+    });
+
+    document.getElementById('previewCount').textContent = `(${rows.length} 个商品)`;
+    document.getElementById('previewSection').classList.remove('hidden');
+  } catch (_) { /* preview is best-effort */ }
 }
 
 function finishError() {
@@ -307,6 +356,7 @@ function resetAll() {
   clearLog();
   hideError();
   document.getElementById('downloadSection').classList.add('hidden');
+  document.getElementById('previewSection').classList.add('hidden');
   document.getElementById('progressBar').style.width = '0%';
   setStatus('待机 Idle', 'idle');
   goStep(1);

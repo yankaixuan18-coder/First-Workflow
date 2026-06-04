@@ -261,6 +261,36 @@
       </div>
       <div id="logBox" class="h-72"></div>
 
+      <!-- Results preview table -->
+      <div id="previewSection" class="hidden mt-5">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-semibold text-slate-700">采集结果预览 <span id="previewCount" class="text-slate-400 font-normal"></span></span>
+          <span class="text-xs text-slate-400">仅显示部分字段，完整数据请下载 Excel</span>
+        </div>
+        <div class="border border-slate-200 rounded-xl overflow-hidden">
+          <div class="overflow-x-auto max-h-80 overflow-y-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-slate-50 text-slate-500 sticky top-0">
+                <tr>
+                  <th class="px-2 py-2 font-semibold">#</th>
+                  <th class="px-2 py-2 font-semibold">图</th>
+                  <th class="px-2 py-2 font-semibold">ASIN</th>
+                  <th class="px-2 py-2 font-semibold min-w-[180px]">标题</th>
+                  <th class="px-2 py-2 font-semibold">品牌</th>
+                  <th class="px-2 py-2 font-semibold">价格</th>
+                  <th class="px-2 py-2 font-semibold">评分</th>
+                  <th class="px-2 py-2 font-semibold">评论数</th>
+                  <th class="px-2 py-2 font-semibold">配送</th>
+                  <th class="px-2 py-2 font-semibold">月销量</th>
+                  <th class="px-2 py-2 font-semibold">页</th>
+                </tr>
+              </thead>
+              <tbody id="previewBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- Download -->
       <div id="downloadSection" class="hidden mt-4">
         <a id="downloadBtn" href="#"

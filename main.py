@@ -348,6 +348,32 @@ def status(task_id: str):
     })
 
 
+@app.route("/results/<task_id>")
+def results(task_id: str):
+    """Return collected products as JSON for the on-screen preview table."""
+    with tasks_lock:
+        task = tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "task not found"}), 404
+
+    # Key fields for a compact preview (full data is in the Excel export)
+    preview_fields = [
+        "asin", "title", "brand", "price", "rating", "review_count",
+        "fulfillment", "seller_sprite_monthly_sales", "bsr",
+        "main_image_url", "product_url", "page_number",
+    ]
+    rows = [
+        {f: (p.get(f, "") or "") for f in preview_fields}
+        for p in task["products"]
+    ]
+
+    return jsonify({
+        "status": task["status"],
+        "count": len(rows),
+        "products": rows,
+    })
+
+
 @app.route("/download/<task_id>")
 def download(task_id: str):
     """Download the Excel file produced by a completed task."""
