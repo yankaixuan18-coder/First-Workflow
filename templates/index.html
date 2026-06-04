@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>亚马逊选品分析 · Amazon Product Picker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .gauge { transition: stroke-dashoffset 1s ease-out; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+    <div class="max-w-5xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-slate-900">🛒 亚马逊 AI 选品分析</h1>
+            <p class="text-slate-500 mt-2">输入 Helium 10 / SellerSprite / SIF 的数据，AI 帮你打分并给出选品建议</p>
+        </header>
+
+        <!-- Tabs -->
+        <div class="flex gap-2 mb-6 justify-center">
+            <button id="tab-upload" onclick="switchTab('upload')"
+                class="tab-btn px-6 py-2.5 rounded-lg font-medium bg-blue-600 text-white shadow">
+                📄 上传 Excel
+            </button>
+            <button id="tab-manual" onclick="switchTab('manual')"
+                class="tab-btn px-6 py-2.5 rounded-lg font-medium bg-white text-slate-600 border border-slate-200">
+                ✍️ 手动录入
+            </button>
+        </div>
+
+        <!-- Upload Panel -->
+        <div id="panel-upload" class="bg-white rounded-xl shadow-sm p-8">
+            <div id="dropzone"
+                class="border-2 border-dashed border-slate-300 rounded-xl p-12 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition">
+                <input type="file" id="file-input" accept=".xlsx" class="hidden">
+                <div class="text-5xl mb-3">📊</div>
+                <p class="text-lg font-medium text-slate-700">点击或拖拽上传 .xlsx 文件</p>
+                <p class="text-sm text-slate-400 mt-1">使用与示例模板相同的格式（数据在第 3 行）</p>
+                <p id="file-name" class="text-blue-600 font-medium mt-3"></p>
+            </div>
+            <button id="upload-btn" onclick="submitUpload()" disabled
+                class="mt-6 w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                开始分析
+            </button>
+        </div>
+
+        <!-- Manual Panel -->
+        <div id="panel-manual" class="hidden bg-white rounded-xl shadow-sm p-6">
+            <form id="manual-form" class="space-y-3">
+                <!-- Sections injected by JS -->
+            </form>
+            <button onclick="submitManual()"
+                class="mt-6 w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
+                开始分析
+            </button>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="hidden text-center py-16">
+            <div class="inline-block w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+            <p class="text-slate-500 mt-4">AI 正在分析产品数据，请稍候…</p>
+        </div>
+
+        <!-- Error -->
+        <div id="error-box" class="hidden mt-6 bg-red-50 border border-red-200 text-red-700 rounded-lg p-4"></div>
+
+        <!-- Results -->
+        <div id="results" class="hidden mt-8"></div>
+    </div>
+
+<script>
+// ---- Field definitions (keys MUST match the backend) ----
+const SECTIONS = [
+    {
+        title: "📋 基本信息",
+        open: true,
+        fields: [
+            { key: "product_name", label: "产品名称", type: "text" },
+            { key: "brand", label: "品牌", type: "text" },
+            { key: "top_asin", label: "热销 ASIN", type: "text" },
+            { key: "category_node", label: "类目节点", type: "text" },
+            { key: "launch_date", label: "上架时间", type: "date" },
+            { key: "seller_origin", label: "卖家注册地", type: "text" },
+        ]
+    },
+    {
+        title: "📈 销量数据",
+        fields: [
+            { key: "top_asin_monthly_sales", label: "热销 ASIN 月销量", type: "number" },
+            { key: "parent_monthly_sales", label: "父体月销量", type: "number" },
+            { key: "variants", label: "变体数量", type: "number" },
+            { key: "conversion_rate", label: "转化率 (%)", type: "number", step: "0.01" },
+        ]
+    },
+    {
+        title: "💰 价格与财务",
+        fields: [
+            { key: "transaction_price", label: "成交金额 ($)", type: "number", step: "0.01" },
+            { key: "coupon", label: "促销 coupon", type: "text" },
+            { key: "product_cost_rmb", label: "产品成本 (人民币)", type: "number", step: "0.01" },
+            { key: "product_cost_usd", label: "产品成本 (美金)", type: "number", step: "0.01" },
+            { key: "platform_commission", label: "平台佣金", type: "number", step: "0.01" },
+            { key: "fba", label: "FBA 费用", type: "number", step: "0.01" },
+            { key: "gross_profit", label: "毛利润", type: "number", step: "0.01" },
+            { key: "gross_margin", label: "毛润率 (%)", type: "number", step: "0.0001" },
+            { key: "exchange_rate", label: "汇率", type: "number", step: "0.01" },
+            { key: "historical_price", label: "历史价格备注", type: "textarea" },
+        ]
+    },
+    {
+        title: "📦 物流信息",
+        fields: [
+            { key: "package_weight", label: "包裹重", type: "number", step: "0.01" },
+            { key: "volume_weight", label: "体积重", type: "number", step: "0.01" },
+            { key: "package_length", label: "包裹长", type: "number", step: "0.01" },
+            { key: "package_width", label: "包裹宽", type: "number", step: "0.01" },
+            { key: "package_height", label: "包裹高", type: "number", step: "0.01" },
+            { key: "first_leg_weight", label: "头程-重量", type: "number", step: "0.01" },
+            { key: "first_leg_size", label: "头程-尺寸", type: "number", step: "0.01" },
+            { key: "first_leg_shipping", label: "头程费用", type: "number", step: "0.01" },
+            { key: "current_first_leg_price", label: "当前头程价", type: "number", step: "0.01" },
+            { key: "off_season_storage", label: "淡季仓储费", type: "number", step: "0.01" },
+        ]
+    },
+    {
+        title: "🎯 广告数据",
+        fields: [
+            { key: "cpc", label: "CPC", type: "number", step: "0.01" },
+            { key: "ad_roi", label: "投产比 (ROAS)", type: "number", step: "0.01" },
+            { key: "ad_share", label: "广告占比 (%)", type: "number", step: "0.01" },
+            { key: "ads", label: "广告备注", type: "text" },
+        ]
+    },
+    {
+        title: "🔑 关键词与趋势",
+        fields: [
+            { key: "keyword1", label: "关键词 1", type: "text" },
+            { key: "trend1", label: "关键词 1 · 近3年趋势", type: "text" },
+            { key: "keyword2", label: "关键词 2", type: "text" },
+            { key: "trend2", label: "关键词 2 · 近3年趋势", type: "text" },
+            { key: "keyword3", label: "关键词 3", type: "text" },
+            { key: "trend3", label: "关键词 3 · 近3年趋势", type: "text" },
+            { key: "keyword4", label: "关键词 4", type: "text" },
+            { key: "trend4", label: "关键词 4 · 近3年趋势", type: "text" },
+            { key: "keyword5", label: "关键词 5", type: "text" },
+            { key: "trend5", label: "关键词 5 · 近3年趋势", type: "text" },
+            { key: "top_asin_trend", label: "热销 ASIN 近3年趋势", type: "text" },
+        ]
+    },
+    {
+        title: "🥊 竞争分析",
+        fields: [
+            { key: "rating", label: "评分", type: "number", step: "0.1" },
+            { key: "reviews", label: "评论数", type: "number" },
+            { key: "annual_feedback", label: "店铺年 feedback", type: "number" },
+            { key: "competitor_relevance", label: "竞店商品相关度", type: "text" },
+            { key: "concentration", label: "品牌/卖家/商品集中度", type: "text" },
+            { key: "return_rate", label: "退货率 (%)", type: "number", step: "0.0001" },
+        ]
+    },
+    {
+        title: "🎨 视觉质量",
+        fields: [
+            { key: "visual_images", label: "视觉-图片", type: "text" },
+            { key: "visual_video", label: "视觉-主图视频", type: "text" },
+            { key: "visual_aplus", label: "视觉-A+ 内容", type: "text" },
+        ]
+    },
+    {
+        title: "🧠 消费者洞察",
+        fields: [
+            { key: "consumer_profile", label: "消费者画像", type: "textarea" },
+            { key: "use_cases", label: "使用场景", type: "textarea" },
+            { key: "unmet_needs", label: "未被满足的需求", type: "textarea" },
+            { key: "pros", label: "优点", type: "textarea" },
+            { key: "opportunity_pros", label: "商机探测器优点", type: "textarea" },
+            { key: "cons", label: "缺点", type: "textarea" },
+            { key: "opportunity_cons", label: "商机探测器缺点", type: "textarea" },
+            { key: "purchase_motivation", label: "购买动机", type: "textarea" },
+            { key: "feature_ratings", label: "特点评分", type: "textarea" },
+            { key: "return_reasons", label: "商机探测器退货原因", type: "textarea" },
+            { key: "repurchase_cycle", label: "复购周期", type: "text" },
+        ]
+    },
+    {
+        title: "📣 营销信息",
+        fields: [
+            { key: "title", label: "标题", type: "textarea" },
+            { key: "selling_points", label: "卖点", type: "textarea" },
+        ]
+    },
+];
+
+// ---- Build the manual form ----
+function buildForm() {
+    const form = document.getElementById("manual-form");
+    SECTIONS.forEach((section, idx) => {
+        const details = document.createElement("details");
+        details.className = "border border-slate-200 rounded-lg overflow-hidden";
+        if (section.open) details.open = true;
+
+        const summary = document.createElement("summary");
+        summary.className = "cursor-pointer select-none px-4 py-3 bg-slate-50 font-semibold text-slate-700 hover:bg-slate-100";
+        summary.textContent = section.title;
+        details.appendChild(summary);
+
+        const grid = document.createElement("div");
+        grid.className = "grid grid-cols-1 md:grid-cols-2 gap-4 p-4";
+
+        section.fields.forEach(f => {
+            const wrap = document.createElement("div");
+            if (f.type === "textarea") wrap.className = "md:col-span-2";
+
+            const label = document.createElement("label");
+            label.className = "block text-sm font-medium text-slate-600 mb-1";
+            label.textContent = f.label;
+            label.setAttribute("for", "f_" + f.key);
+            wrap.appendChild(label);
+
+            let input;
+            if (f.type === "textarea") {
+                input = document.createElement("textarea");
+                input.rows = 2;
+            } else {
+                input = document.createElement("input");
+                input.type = f.type;
+                if (f.step) input.step = f.step;
+            }
+            input.id = "f_" + f.key;
+            input.name = f.key;
+            input.className = "w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none";
+            wrap.appendChild(input);
+            grid.appendChild(wrap);
+        });
+
+        details.appendChild(grid);
+        form.appendChild(details);
+    });
+}
+buildForm();
+
+// ---- Tab switching ----
+function switchTab(tab) {
+    const isUpload = tab === "upload";
+    document.getElementById("panel-upload").classList.toggle("hidden", !isUpload);
+    document.getElementById("panel-manual").classList.toggle("hidden", isUpload);
+
+    const upBtn = document.getElementById("tab-upload");
+    const manBtn = document.getElementById("tab-manual");
+    const active = "px-6 py-2.5 rounded-lg font-medium bg-blue-600 text-white shadow";
+    const inactive = "px-6 py-2.5 rounded-lg font-medium bg-white text-slate-600 border border-slate-200";
+    upBtn.className = "tab-btn " + (isUpload ? active : inactive);
+    manBtn.className = "tab-btn " + (isUpload ? inactive : active);
+}
+
+// ---- File upload handling ----
+const fileInput = document.getElementById("file-input");
+const dropzone = document.getElementById("dropzone");
+const uploadBtn = document.getElementById("upload-btn");
+
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("border-blue-400", "bg-blue-50"); });
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("border-blue-400", "bg-blue-50"));
+dropzone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropzone.classList.remove("border-blue-400", "bg-blue-50");
+    if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        onFilePicked();
+    }
+});
+fileInput.addEventListener("change", onFilePicked);
+
+function onFilePicked() {
+    const f = fileInput.files[0];
+    if (f) {
+        document.getElementById("file-name").textContent = "✓ " + f.name;
+        uploadBtn.disabled = false;
+    }
+}
+
+// ---- Submit handlers ----
+function showLoading() {
+    hideError();
+    document.getElementById("results").classList.add("hidden");
+    document.getElementById("loading").classList.remove("hidden");
+}
+function hideLoading() {
+    document.getElementById("loading").classList.add("hidden");
+}
+function showError(msg) {
+    hideLoading();
+    const box = document.getElementById("error-box");
+    box.textContent = "⚠️ " + msg;
+    box.classList.remove("hidden");
+}
+function hideError() {
+    document.getElementById("error-box").classList.add("hidden");
+}
+
+async function submitUpload() {
+    const f = fileInput.files[0];
+    if (!f) return;
+    showLoading();
+    const fd = new FormData();
+    fd.append("file", f);
+    try {
+        const res = await fetch("/upload", { method: "POST", body: fd });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "上传失败");
+        renderResults(json);
+    } catch (e) {
+        showError(e.message);
+    }
+}
+
+async function submitManual() {
+    showLoading();
+    const form = document.getElementById("manual-form");
+    const data = {};
+    new FormData(form).forEach((v, k) => {
+        if (v !== "") data[k] = v;
+    });
+    try {
+        const res = await fetch("/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "分析失败");
+        renderResults(json);
+    } catch (e) {
+        showError(e.message);
+    }
+}
+
+// ---- Render results ----
+const DIMENSIONS = [
+    { key: "market_opportunity", label: "市场机会" },
+    { key: "profitability", label: "盈利能力" },
+    { key: "competition_level", label: "竞争程度" },
+    { key: "product_quality_signal", label: "产品质量信号" },
+    { key: "trend_longevity", label: "趋势与持续性" },
+];
+
+function verdictStyle(v) {
+    if (v === "Go") return { bg: "bg-green-500", text: "建议跟进", emoji: "✅" };
+    if (v === "Maybe") return { bg: "bg-amber-500", text: "需进一步调查", emoji: "🤔" };
+    return { bg: "bg-red-500", text: "不建议", emoji: "🚫" };
+}
+
+function scoreColor(s) {
+    if (s >= 7) return "bg-green-500";
+    if (s >= 5) return "bg-amber-500";
+    return "bg-red-500";
+}
+
+function renderResults(json) {
+    hideLoading();
+    const a = json.analysis;
+    const vs = verdictStyle(a.verdict);
+    const overall = Number(a.overall_score || 0).toFixed(1);
+
+    let bars = DIMENSIONS.map(d => {
+        const s = Number(a[d.key] || 0);
+        const pct = Math.min(s * 10, 100);
+        return `
+        <div>
+            <div class="flex justify-between text-sm mb-1">
+                <span class="font-medium text-slate-700">${d.label}</span>
+                <span class="font-semibold text-slate-900">${s.toFixed(1)} / 10</span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-2.5">
+                <div class="${scoreColor(s)} h-2.5 rounded-full transition-all duration-700" style="width:${pct}%"></div>
+            </div>
+        </div>`;
+    }).join("");
+
+    const risks = (a.key_risks || []).map(r => `<li class="flex gap-2"><span class="text-red-500">●</span><span>${escapeHtml(r)}</span></li>`).join("");
+    const opps = (a.key_opportunities || []).map(o => `<li class="flex gap-2"><span class="text-green-600">●</span><span>${escapeHtml(o)}</span></li>`).join("");
+
+    document.getElementById("results").innerHTML = `
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <!-- Verdict banner -->
+            <div class="${vs.bg} text-white p-6 text-center">
+                <div class="text-5xl mb-2">${vs.emoji}</div>
+                <div class="text-3xl font-bold">${a.verdict} · ${vs.text}</div>
+                <div class="text-xl mt-2 opacity-90">综合评分 ${overall} / 10</div>
+            </div>
+
+            <div class="p-6 space-y-6">
+                <!-- Score bars -->
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">各维度评分</h3>
+                    <div class="space-y-4">${bars}</div>
+                </div>
+
+                <!-- Reasoning -->
+                <div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-2">分析详情</h3>
+                    <p class="text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50 rounded-lg p-4">${escapeHtml(a.reasoning || "")}</p>
+                </div>
+
+                <!-- Risks & Opportunities -->
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div class="bg-red-50 rounded-lg p-4">
+                        <h3 class="font-bold text-red-700 mb-3">⚠️ 主要风险</h3>
+                        <ul class="space-y-2 text-slate-700 text-sm">${risks || "<li>—</li>"}</ul>
+                    </div>
+                    <div class="bg-green-50 rounded-lg p-4">
+                        <h3 class="font-bold text-green-700 mb-3">💡 主要机会</h3>
+                        <ul class="space-y-2 text-slate-700 text-sm">${opps || "<li>—</li>"}</ul>
+                    </div>
+                </div>
+
+                <!-- Download -->
+                <a href="/download/${json.id}"
+                    class="block text-center bg-slate-800 text-white py-3 rounded-lg font-semibold hover:bg-slate-900 transition">
+                    ⬇️ 下载 Excel 分析报告
+                </a>
+            </div>
+        </div>`;
+
+    document.getElementById("results").classList.remove("hidden");
+    document.getElementById("results").scrollIntoView({ behavior: "smooth" });
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+</script>
+</body>
+</html>
