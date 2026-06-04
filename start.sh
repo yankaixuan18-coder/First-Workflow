@@ -34,8 +34,7 @@ if [ ! -f ".venv/.deps_installed" ]; then
     echo "      Installing, please wait ... (first run takes a few minutes)"
     "$VENV_PY" -m pip install --upgrade pip >/dev/null
     "$VENV_PY" -m pip install -r requirements.txt
-    echo "      Setting up browser driver ..."
-    "$VENV_PY" -m playwright install chromium >/dev/null 2>&1 || true
+    echo "      Browser driver ready (using your installed Microsoft Edge)."
     touch ".venv/.deps_installed"
     echo "      Dependencies installed."
 else

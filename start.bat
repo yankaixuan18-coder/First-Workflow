@@ -60,8 +60,7 @@ if not exist ".venv\.deps_installed" (
         pause
         exit /b 1
     )
-    echo       Setting up browser driver ...
-    "%VENV_PY%" -m playwright install chromium
+    echo       Browser driver ready (using your installed Microsoft Edge).
     echo done> ".venv\.deps_installed"
     echo       Dependencies installed.
 ) else (
