@@ -38,3 +38,4 @@ playwright/.local-browsers/
 # Windows
 Thumbs.db
 desktop.ini
+.claude/
