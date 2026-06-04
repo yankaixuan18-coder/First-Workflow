@@ -132,7 +132,7 @@ def run_collection(task_id: str, params: dict):
 
     try:
         _log(task_id, f"初始化浏览器 / Initializing browser …")
-        _log(task_id, f"Chrome profile: {chrome_user_data_dir} [{chrome_profile}]")
+        _log(task_id, f"Edge profile: {chrome_user_data_dir} [{chrome_profile}]")
 
         browser = BrowserController(
             chrome_user_data_dir=chrome_user_data_dir,
@@ -144,6 +144,12 @@ def run_collection(task_id: str, params: dict):
 
         # Determine whether input is a URL or a keyword
         if keyword_or_url.startswith("http://") or keyword_or_url.startswith("https://"):
+            # Reject individual product pages — tool only works on search/category pages
+            if "/dp/" in keyword_or_url or "/gp/product/" in keyword_or_url:
+                _log(task_id, "❌ 错误 / Error: 请输入搜索关键词或搜索结果页面链接，不支持单个商品详情页链接（含 /dp/）。")
+                _log(task_id, "   提示 / Tip: 例如输入关键词 'camping cot'，或粘贴 Amazon 搜索结果页链接（含 /s?k=）。")
+                tasks[task_id]["status"] = "error"
+                return
             base_url = keyword_or_url
             is_keyword = False
             _log(task_id, f"模式: URL采集 / Mode: URL scraping — {base_url}")
