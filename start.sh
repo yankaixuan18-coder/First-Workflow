@@ -50,7 +50,7 @@ if [ ! -f ".env" ] && [ -f ".env.example" ]; then
 fi
 
 # 5. Reminder
-echo "[5/6] Reminder: CLOSE all Chrome windows before collecting."
+echo "[5/6] Reminder: CLOSE all Edge windows before collecting."
 
 # 6. Launch + open browser
 echo "[6/6] Starting the app at http://localhost:5000 ..."

@@ -1,6 +1,6 @@
 # Amazon 类目研究采集工具
 
-A local browser automation tool for Amazon category research. Drives your real Chrome browser (with extensions) to collect product data and export it to Excel.
+A local browser automation tool for Amazon category research. Drives your real Edge browser (with extensions) to collect product data and export it to Excel.
 
 **No AI scoring. No cloud dependency. Data collection only.**
 
@@ -19,12 +19,12 @@ The launcher automatically:
 1. Checks that Python is installed (and tells you where to get it if not)
 2. Creates a virtual environment (`.venv`) on first run
 3. Installs all dependencies from `requirements.txt` + the browser driver
-4. Creates your `.env` config from the template (opens Notepad on Windows so you can set your Chrome path)
+4. Creates your `.env` config from the template (opens Notepad on Windows so you can set your Edge path)
 5. Starts the local web app and **opens your browser** at http://localhost:5000
 
 On later runs it skips the install steps and starts instantly. To stop the app, just close the launcher window.
 
-> ⚠️ **Close all Chrome windows before collecting** — Chrome cannot share a profile with another process.
+> ⚠️ **Close all Edge windows before collecting** — Edge cannot share a profile with another process.
 
 The manual setup below is only needed if you prefer to run things yourself.
 
@@ -35,8 +35,8 @@ The manual setup below is only needed if you prefer to run things yourself.
 | Requirement | Notes |
 |---|---|
 | Python 3.10+ | https://www.python.org/downloads/ |
-| Google Chrome | Must be installed; the tool uses your real Chrome profile |
-| Browser extensions | 卖家精灵 (SellerSprite) and/or SIF installed in Chrome |
+| Microsoft Edge | Must be installed; the tool uses your real Edge profile |
+| Browser extensions | 卖家精灵 (SellerSprite) and/or SIF installed in Edge |
 
 ---
 
@@ -50,13 +50,13 @@ pip install -r requirements.txt
 
 ### 2. Install Playwright browser binaries (optional fallback)
 
-The tool uses your installed Chrome via `channel="chrome"`. If Chrome is not found on PATH, install the Playwright Chromium build:
+The tool uses your installed Edge via `channel="chrome"`. If Edge is not found on PATH, install the Playwright Chromium build:
 
 ```bash
 playwright install chromium
 ```
 
-### 3. Configure your Chrome profile path
+### 3. Configure your Edge profile path
 
 Copy the example env file and edit it:
 
@@ -65,33 +65,33 @@ copy .env.example .env      # Windows
 cp .env.example .env        # Mac / Linux
 ```
 
-Open `.env` in a text editor and set `CHROME_USER_DATA_DIR` to your actual Chrome User Data path.
+Open `.env` in a text editor and set `CHROME_USER_DATA_DIR` to your actual Edge User Data path.
 
 **Windows (typical path):**
 ```
-CHROME_USER_DATA_DIR=C:\Users\YourName\AppData\Local\Google\Chrome\User Data
+CHROME_USER_DATA_DIR=C:\Users\YourName\AppData\Local\Microsoft\Edge\User Data
 CHROME_PROFILE=Default
 ```
 
 **Mac:**
 ```
-CHROME_USER_DATA_DIR=~/Library/Application Support/Google/Chrome
+CHROME_USER_DATA_DIR=~/Library/Application Support/Microsoft Edge
 CHROME_PROFILE=Default
 ```
 
 **Linux:**
 ```
-CHROME_USER_DATA_DIR=~/.config/google-chrome
+CHROME_USER_DATA_DIR=~/.config/microsoft-edge
 CHROME_PROFILE=Default
 ```
 
-To find your exact path, open Chrome and navigate to `chrome://version` — look for **Profile Path** and copy the parent directory.
+To find your exact path, open Edge and navigate to `edge://version` — look for **Profile Path** and copy the parent directory.
 
 ---
 
 ## Running the tool
 
-> **Important:** Close all Chrome windows completely before starting. Chrome cannot share a User Data directory with another process. Check Task Manager (Windows) or Activity Monitor (Mac) for any lingering `chrome.exe` / `Google Chrome` processes.
+> **Important:** Close all Edge windows completely before starting. Edge cannot share a User Data directory with another process. Check Task Manager (Windows) or Activity Monitor (Mac) for any lingering `msedge.exe` / `Microsoft Edge` processes.
 
 ```bash
 python main.py
@@ -107,7 +107,7 @@ Then open **http://localhost:5000** in any browser (Edge, Firefox, etc.).
 2. Choose your **marketplace** (amazon.com, amazon.co.uk, etc.).
 3. Set **Max Pages** and **Max Products** to control how much data is collected.
 4. Optionally check **"Also open detail pages"** to fetch BSR, listing date, and seller information from individual product pages. This is slower but provides richer data.
-5. Expand **Chrome Settings** if you need to override the profile path.
+5. Expand **Edge Settings** if you need to override the profile path.
 6. Click **开始采集 (Start)**.
 7. Watch the live log. When the status turns green (**完成 Done**), click **下载 Excel** to save your file.
 
@@ -115,7 +115,7 @@ Then open **http://localhost:5000** in any browser (Edge, Firefox, etc.).
 
 ## Extension data (卖家精灵 / SIF)
 
-Because the tool uses your real Chrome profile with your extensions, 卖家精灵 and SIF will be active in the automated browser window.
+Because the tool uses your real Edge profile with your extensions, 卖家精灵 and SIF will be active in the automated browser window.
 
 The adapters (`extension_adapters/seller_sprite_adapter.py` and `sif_adapter.py`) attempt to read data that the extensions inject into the Amazon page DOM. If the extension has injected its overlay elements by the time the adapter runs, those fields (monthly sales, monthly revenue, search volume, etc.) will appear in the Excel export.
 
@@ -165,16 +165,16 @@ amazon_<keyword>_<YYYYMMDD_HHMMSS>.xlsx
 
 ## Troubleshooting
 
-### "Chrome profile is locked"
-Another Chrome process is still running. On Windows, open Task Manager, find all `chrome.exe` processes, and end them. Then restart the tool.
+### "Edge profile is locked"
+Another Edge process is still running. On Windows, open Task Manager, find all `msedge.exe` processes, and end them. Then restart the tool.
 
-### "Chrome user data directory not found"
-The path in your `.env` file is incorrect. Open Chrome, go to `chrome://version`, copy the **Profile Path** value, and strip the last folder (the profile directory name). That parent directory is your `CHROME_USER_DATA_DIR`.
+### "Edge user data directory not found"
+The path in your `.env` file is incorrect. Open Edge, go to `edge://version`, copy the **Profile Path** value, and strip the last folder (the profile directory name). That parent directory is your `CHROME_USER_DATA_DIR`.
 
 ### Extensions not loading
-- Make sure the extensions are installed in the Chrome profile specified in `.env`.
+- Make sure the extensions are installed in the Edge profile specified in `.env`.
 - Check that `CHROME_PROFILE` matches the folder name under your User Data directory (usually `Default`, or `Profile 1`, `Profile 2`, etc.).
-- Open `chrome://version` to confirm the exact profile directory name.
+- Open `edge://version` to confirm the exact profile directory name.
 
 ### Amazon shows CAPTCHA
 Amazon may show a CAPTCHA if it detects automated access. The tool adds random delays between requests to reduce this. If CAPTCHAs appear frequently:
@@ -182,7 +182,7 @@ Amazon may show a CAPTCHA if it detects automated access. The tool adds random d
 - Reduce the number of pages collected per session.
 
 ### The browser window doesn't open
-The tool always runs Chrome in headed (visible) mode because extensions require a display. On a headless server, set up a virtual display (e.g. Xvfb on Linux) or run the tool on a desktop machine.
+The tool always runs Edge in headed (visible) mode because extensions require a display. On a headless server, set up a virtual display (e.g. Xvfb on Linux) or run the tool on a desktop machine.
 
 ---
 
@@ -211,7 +211,7 @@ pip install google-generativeai  # for Gemini
 ```
 ├── main.py                    Flask entry point, routes, task management
 ├── config.py                  Marketplace URLs, paths, defaults
-├── browser_automation.py      Playwright Chrome controller
+├── browser_automation.py      Playwright Edge controller
 ├── amazon_scraper.py          HTML parser for search & detail pages
 ├── extension_adapters/
 │   ├── base_adapter.py        Abstract base class

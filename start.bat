@@ -76,7 +76,7 @@ if not exist ".env" (
         copy ".env.example" ".env" > "%TEMP%\_amzchk"
         echo.
         echo [NOTICE] Created .env config file.
-        echo   Please set your Chrome path. Notepad will open now -
+        echo   Please set your Edge path. Notepad will open now -
         echo   edit it, then SAVE and CLOSE Notepad to continue.
         echo.
         pause
@@ -90,7 +90,7 @@ if not exist ".env" (
 echo.
 
 REM ---------- 5. Reminder ----------
-echo [5/6] IMPORTANT: Close ALL Chrome windows before collecting.
+echo [5/6] IMPORTANT: Close ALL Edge windows before collecting.
 echo.
 
 REM ---------- 6. Launch ----------

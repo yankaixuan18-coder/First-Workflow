@@ -1,5 +1,5 @@
 """
-Playwright Chrome controller with user profile support.
+Playwright Microsoft Edge controller with user profile support.
 Runs in sync mode so it can be used from background threads.
 """
 import os
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class BrowserController:
-    """Controls a persistent Chrome browser context via Playwright."""
+    """Controls a persistent Edge browser context via Playwright."""
 
     def __init__(self, chrome_user_data_dir: str, chrome_profile: str = "Default", headless: bool = False):
         # Expand environment variables and user home in path
@@ -25,10 +25,10 @@ class BrowserController:
 
     def launch(self):
         """
-        Launch a persistent Chrome context using the user's real Chrome profile.
+        Launch a persistent Edge context using the user's real Edge profile.
         This allows browser extensions (卖家精灵, SIF, etc.) to be active.
 
-        Raises RuntimeError if the profile is locked (another Chrome instance is running).
+        Raises RuntimeError if the profile is locked (another Edge instance is running).
         """
         from playwright.sync_api import sync_playwright
 
@@ -36,29 +36,29 @@ class BrowserController:
 
         if not os.path.exists(profile_path):
             raise RuntimeError(
-                f"Chrome user data directory not found: {profile_path}\n"
-                "Please set CHROME_USER_DATA_DIR in your .env file to the correct path."
+                f"Edge user data directory not found: {profile_path}\n"
+                "Please set CHROME_USER_DATA_DIR in your .env file to the correct Edge path."
             )
 
-        # Check for Chrome lock file — indicates another Chrome process is running
+        # Check for Edge lock file — indicates another Edge process is running
         lock_file = os.path.join(profile_path, "lockfile")
         singleton_lock = os.path.join(profile_path, "SingletonLock")
         for lf in (lock_file, singleton_lock):
             if os.path.exists(lf):
                 raise RuntimeError(
-                    f"Chrome profile is locked: {lf}\n"
-                    "Please close all Chrome windows completely before running this tool.\n"
-                    "Tip: Check Task Manager / Activity Monitor for lingering chrome.exe processes."
+                    f"Edge profile is locked: {lf}\n"
+                    "Please close all Edge windows completely before running this tool.\n"
+                    "Tip: Check Task Manager / Activity Monitor for lingering msedge.exe processes."
                 )
 
-        logger.info(f"Launching Chrome with profile: {profile_path} [{self.chrome_profile}]")
+        logger.info(f"Launching Edge with profile: {profile_path} [{self.chrome_profile}]")
 
         self._playwright = sync_playwright().start()
 
         try:
             self._context = self._playwright.chromium.launch_persistent_context(
                 user_data_dir=profile_path,
-                channel="chrome",
+                channel="msedge",
                 headless=False,
                 args=[
                     "--start-maximized",
@@ -75,15 +75,15 @@ class BrowserController:
             self._playwright = None
             if "Target page, context or browser has been closed" in str(exc):
                 raise RuntimeError(
-                    "Could not launch Chrome. Ensure Chrome is installed and "
+                    "Could not launch Edge. Ensure Microsoft Edge is installed and "
                     "the profile path is correct."
                 ) from exc
             if "is already in use" in str(exc) or "profile" in str(exc).lower():
                 raise RuntimeError(
-                    "Chrome profile is already in use by another process.\n"
-                    "Close all Chrome windows and try again."
+                    "Edge profile is already in use by another process.\n"
+                    "Close all Edge windows and try again."
                 ) from exc
-            raise RuntimeError(f"Failed to launch Chrome: {exc}") from exc
+            raise RuntimeError(f"Failed to launch Edge: {exc}") from exc
 
         # Use the first existing page or open a new one
         if self._context.pages:
@@ -91,7 +91,7 @@ class BrowserController:
         else:
             self._page = self._context.new_page()
 
-        logger.info("Chrome launched successfully.")
+        logger.info("Edge launched successfully.")
 
     def navigate(self, url: str):
         """Navigate to a URL and wait for network to settle."""
