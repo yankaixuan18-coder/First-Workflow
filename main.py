@@ -169,8 +169,8 @@ def run_collection(task_id: str, params: dict):
             try:
                 browser.navigate(page_url)
             except Exception as nav_err:
-                _log(task_id, f"  导航失败 / Navigation failed: {nav_err}")
-                break
+                _log(task_id, f"  导航警告 / Navigation warning: {nav_err}")
+                # Continue anyway — the page may still be parseable
 
             browser.scroll_to_bottom()
             html = browser.get_page_html()

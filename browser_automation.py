@@ -94,11 +94,28 @@ class BrowserController:
         logger.info("Edge launched successfully.")
 
     def navigate(self, url: str):
-        """Navigate to a URL and wait for network to settle."""
+        """
+        Navigate to a URL. Wait for the DOM to load, then give extensions
+        and lazy content a moment to render.
+
+        Amazon pages keep background network activity alive (ads, telemetry),
+        so "networkidle" never fires. We use "domcontentloaded" and tolerate
+        timeouts — the page is usually fully usable well before any timeout.
+        """
         if self._page is None:
             raise RuntimeError("Browser not launched. Call launch() first.")
         logger.info(f"Navigating to: {url}")
-        self._page.goto(url, wait_until="networkidle", timeout=30_000)
+        try:
+            self._page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        except Exception as exc:
+            # Page may still have loaded enough to parse — log and continue
+            logger.warning(f"Navigation wait timed out, continuing anyway: {exc}")
+        # Give the page (and extensions) extra time to render
+        try:
+            self._page.wait_for_load_state("load", timeout=10_000)
+        except Exception:
+            pass
+        time.sleep(random.uniform(2.0, 3.5))
 
     def scroll_to_bottom(self):
         """
