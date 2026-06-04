@@ -270,19 +270,19 @@
         <div class="border border-slate-200 rounded-xl overflow-hidden">
           <div class="overflow-x-auto max-h-80 overflow-y-auto">
             <table class="w-full text-xs text-left">
-              <thead class="bg-slate-50 text-slate-500 sticky top-0">
+              <thead class="bg-slate-50 text-slate-500 sticky top-0 select-none">
                 <tr>
                   <th class="px-2 py-2 font-semibold">#</th>
                   <th class="px-2 py-2 font-semibold">图</th>
-                  <th class="px-2 py-2 font-semibold">ASIN</th>
-                  <th class="px-2 py-2 font-semibold min-w-[180px]">标题</th>
-                  <th class="px-2 py-2 font-semibold">品牌</th>
-                  <th class="px-2 py-2 font-semibold">价格</th>
-                  <th class="px-2 py-2 font-semibold">评分</th>
-                  <th class="px-2 py-2 font-semibold">评论数</th>
-                  <th class="px-2 py-2 font-semibold">配送</th>
-                  <th class="px-2 py-2 font-semibold">月销量</th>
-                  <th class="px-2 py-2 font-semibold">页</th>
+                  <th class="px-2 py-2 font-semibold cursor-pointer hover:text-brand-600" data-sort="asin" data-type="str" onclick="sortPreview(this)">ASIN<span class="sort-ind"></span></th>
+                  <th class="px-2 py-2 font-semibold min-w-[180px] cursor-pointer hover:text-brand-600" data-sort="title" data-type="str" onclick="sortPreview(this)">标题<span class="sort-ind"></span></th>
+                  <th class="px-2 py-2 font-semibold cursor-pointer hover:text-brand-600" data-sort="brand" data-type="str" onclick="sortPreview(this)">品牌<span class="sort-ind"></span></th>
+                  <th class="px-2 py-2 font-semibold cursor-pointer hover:text-brand-600" data-sort="price" data-type="num" onclick="sortPreview(this)">价格<span class="sort-ind"></span></th>
+                  <th class="px-2 py-2 font-semibold cursor-pointer hover:text-brand-600" data-sort="rating" data-type="num" onclick="sortPreview(this)">评分<span class="sort-ind"></span></th>
+                  <th class="px-2 py-2 font-semibold cursor-pointer hover:text-brand-600" data-sort="review_count" data-type="num" onclick="sortPreview(this)">评论数<span class="sort-ind"></span></th>
+                  <th class="px-2 py-2 font-semibold cursor-pointer hover:text-brand-600" data-sort="fulfillment" data-type="str" onclick="sortPreview(this)">配送<span class="sort-ind"></span></th>
+                  <th class="px-2 py-2 font-semibold cursor-pointer hover:text-brand-600" data-sort="seller_sprite_monthly_sales" data-type="num" onclick="sortPreview(this)">月销量<span class="sort-ind"></span></th>
+                  <th class="px-2 py-2 font-semibold cursor-pointer hover:text-brand-600" data-sort="page_number" data-type="num" onclick="sortPreview(this)">页<span class="sort-ind"></span></th>
                 </tr>
               </thead>
               <tbody id="previewBody" class="divide-y divide-slate-100"></tbody>

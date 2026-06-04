@@ -288,17 +288,61 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+let previewRows = [];
+let sortState = { key: null, dir: 1 };
+
 async function loadPreview(taskId) {
   try {
     const resp = await fetch(`/results/${taskId}`);
     if (!resp.ok) return;
     const data = await resp.json();
-    const rows = data.products || [];
-    if (!rows.length) return;
+    previewRows = data.products || [];
+    if (!previewRows.length) return;
 
-    const body = document.getElementById('previewBody');
-    body.innerHTML = '';
-    rows.forEach((p, i) => {
+    sortState = { key: null, dir: 1 };
+    renderPreview();
+    document.getElementById('previewCount').textContent = `(${previewRows.length} 个商品)`;
+    document.getElementById('previewSection').classList.remove('hidden');
+  } catch (_) { /* preview is best-effort */ }
+}
+
+function parseNum(v) {
+  // Extract first number from strings like "$69.99", "2,653", "1000+"
+  const m = String(v).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : NaN;
+}
+
+function sortPreview(th) {
+  const key = th.dataset.sort;
+  const type = th.dataset.type;
+  sortState.dir = sortState.key === key ? -sortState.dir : 1;
+  sortState.key = key;
+
+  previewRows.sort((a, b) => {
+    let va = a[key] ?? '', vb = b[key] ?? '';
+    if (type === 'num') {
+      const na = parseNum(va), nb = parseNum(vb);
+      const aEmpty = isNaN(na), bEmpty = isNaN(nb);
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;   // empties always sink to bottom
+      if (bEmpty) return -1;
+      return (na - nb) * sortState.dir;
+    }
+    return String(va).localeCompare(String(vb), 'zh') * sortState.dir;
+  });
+
+  // Update header indicators
+  document.querySelectorAll('#previewSection th[data-sort] .sort-ind').forEach(s => s.textContent = '');
+  th.querySelector('.sort-ind').textContent = sortState.dir === 1 ? ' ▲' : ' ▼';
+
+  renderPreview();
+}
+
+function renderPreview() {
+  const rows = previewRows;
+  const body = document.getElementById('previewBody');
+  body.innerHTML = '';
+  rows.forEach((p, i) => {
       const tr = document.createElement('tr');
       tr.className = 'hover:bg-orange-50';
       const img = p.main_image_url
@@ -321,10 +365,6 @@ async function loadPreview(taskId) {
         `<td class="px-2 py-2 text-slate-400">${escapeHtml(p.page_number) || ''}</td>`;
       body.appendChild(tr);
     });
-
-    document.getElementById('previewCount').textContent = `(${rows.length} 个商品)`;
-    document.getElementById('previewSection').classList.remove('hidden');
-  } catch (_) { /* preview is best-effort */ }
 }
 
 function finishError() {
