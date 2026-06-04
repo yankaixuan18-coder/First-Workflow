@@ -70,22 +70,18 @@ echo.
 
 REM ---------- 4. Configuration ----------
 echo [4/6] Checking configuration ...
-if not exist ".env" (
-    if exist ".env.example" (
-        copy ".env.example" ".env" > "%TEMP%\_amzchk"
-        echo.
-        echo [NOTICE] Created .env config file.
-        echo   Please set your Edge path. Notepad will open now -
-        echo   edit it, then SAVE and CLOSE Notepad to continue.
-        echo.
-        pause
-        notepad ".env"
-    ) else (
-        echo [WARNING] No .env or .env.example found.
-    )
-) else (
-    echo       Configuration ready.
-)
+set "EDGE_DIR=%LOCALAPPDATA%\Microsoft\Edge\User Data"
+REM Always regenerate .env to ensure correct underscore variable names
+(
+    echo CHROME_USER_DATA_DIR=!EDGE_DIR!
+    echo CHROME_PROFILE=Default
+    echo.
+    echo ANTHROPIC_API_KEY=
+    echo OPENAI_API_KEY=
+    echo GEMINI_API_KEY=
+    echo DEEPSEEK_API_KEY=
+) > ".env"
+echo       Edge path: !EDGE_DIR!
 echo.
 
 REM ---------- 5. Reminder ----------
