@@ -29,6 +29,9 @@ from amazon_scraper import (
     parse_product_detail,
 )
 from exporters.excel_exporter import export as export_excel, generate_output_filename
+from extension_adapters.seller_sprite_adapter import SellerSpriteAdapter
+
+_ss_adapter = SellerSpriteAdapter()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -198,6 +201,11 @@ def run_collection(task_id: str, params: dict):
                         detail_data = parse_product_detail(detail_html, product["asin"])
                         # Merge detail data into product dict (detail wins for non-empty values)
                         for key, val in detail_data.items():
+                            if val:
+                                product[key] = val
+                        # Read SellerSprite extension overlay from the live page
+                        ss_data = _ss_adapter.extract_sync(browser.get_page(), product["asin"])
+                        for key, val in ss_data.items():
                             if val:
                                 product[key] = val
                         browser.wait(config.REQUEST_DELAY_MIN, config.REQUEST_DELAY_MAX)

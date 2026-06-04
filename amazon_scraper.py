@@ -272,6 +272,31 @@ def parse_product_detail(html: str, asin: str) -> dict:
     if variation_total:
         result["variation_count"] = str(variation_total)
 
+    # Product dimensions and weight from detail bullets / tech specs
+    for label in ("Item Dimensions LxWxH", "Item Dimensions", "Product Dimensions"):
+        val = _extract_detail_bullet(soup, label)
+        if val:
+            result["product_dimensions"] = val
+            break
+
+    for label in ("Item Weight", "Product Weight"):
+        val = _extract_detail_bullet(soup, label)
+        if val:
+            result["item_weight"] = val
+            break
+
+    for label in ("Package Dimensions",):
+        val = _extract_detail_bullet(soup, label)
+        if val:
+            result["package_dimensions"] = val
+            break
+
+    for label in ("Package Weight",):
+        val = _extract_detail_bullet(soup, label)
+        if val:
+            result["package_weight"] = val
+            break
+
     return result
 
 
