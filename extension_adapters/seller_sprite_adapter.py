@@ -25,20 +25,44 @@ logger = logging.getLogger(__name__)
 # Markers that reliably appear together inside the SellerSprite panel.
 _PANEL_MARKERS = ["近30天销量", "FBA费用", "毛利率"]
 
-# JS that returns the innerText of the SMALLEST element containing every marker
-# (i.e. the SellerSprite panel), falling back to the whole body.
+# JS that returns the innerText of the WHOLE SellerSprite panel.
+#
+# Strategy: find a small element containing "FBA费用" (unique to the panel),
+# then climb up to the panel root — the nearest ancestor that also contains
+# "ASIN" plus a metric marker. Climbing UP is essential: the upper metric rows
+# (近30天销量/FBA费用/毛利率) and the lower rows (配送时长/包装尺寸/上架时间/流量词)
+# live in sibling sub-divs, so the *tightest* container with only the upper
+# markers would truncate the bottom half of the panel.
 _JS_GET_PANEL = """() => {
-    const markers = %s;
-    let best = null;
-    const els = Array.from(document.querySelectorAll('div, section, aside, table'));
-    for (const el of els) {
-        const t = el.innerText || '';
-        if (markers.every(m => t.includes(m))) {
-            if (best === null || t.length < (best.innerText || '').length) best = el;
+    const all = Array.from(document.querySelectorAll('*'));
+    // Anchor on a leaf-ish element that mentions FBA费用 (panel-only label)
+    let marker = null;
+    for (const el of all) {
+        const t = el.textContent || '';
+        if (t.includes('FBA费用') && el.children.length <= 4) { marker = el; break; }
+    }
+    if (!marker) {
+        // Fallback: tightest container holding all upper markers
+        const ms = %s;
+        let best = null;
+        for (const el of all) {
+            const t = el.innerText || '';
+            if (ms.every(m => t.includes(m))) {
+                if (best === null || t.length < (best.innerText || '').length) best = el;
+            }
+        }
+        return best ? best.innerText : (document.body ? document.body.innerText : '');
+    }
+    // Climb to the panel root: ancestor containing ASIN + a metric marker
+    let node = marker;
+    for (let i = 0; i < 10 && node.parentElement; i++) {
+        node = node.parentElement;
+        const t = node.innerText || '';
+        if (t.includes('ASIN') && (t.includes('销售额') || t.includes('近30天销量'))) {
+            return t;
         }
     }
-    if (best) return best.innerText;
-    return document.body ? document.body.innerText : '';
+    return node ? (node.innerText || '') : '';
 }""" % ("[" + ",".join(f'"{m}"' for m in _PANEL_MARKERS) + "]")
 
 
@@ -90,6 +114,12 @@ class SellerSpriteAdapter(BaseExtensionAdapter):
 
         if not panel_text:
             return result
+
+        # Keep the raw panel text (single-line, truncated) for debugging.
+        # Underscore-prefixed so the exporter ignores it.
+        result["_ss_panel_text"] = " ⏎ ".join(
+            ln.strip() for ln in panel_text.splitlines() if ln.strip()
+        )[:600]
 
         try:
             self._parse_panel(panel_text, result)

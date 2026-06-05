@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-pct-v12"
+BUILD_VERSION = "2026-06-05-panel-v13"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -368,6 +368,9 @@ def run_collection(task_id: str, params: dict):
                                      ("ss_ad_traffic", "广告词"),
                                      ("ss_recommend_traffic", "推荐词"),
                                  ]))
+                            raw = product.pop("_ss_panel_text", "")
+                            if raw:
+                                _log(task_id, f"    [调试]面板原文 / Panel raw: {raw}")
                         browser.wait(config.REQUEST_DELAY_MIN, config.REQUEST_DELAY_MAX)
                     except Exception as detail_err:
                         _log(task_id, f"    详情页错误 / Detail page error: {detail_err}")
