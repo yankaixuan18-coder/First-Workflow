@@ -104,9 +104,25 @@ REM First time only: copy your CURRENT logged-in Edge profile (logins +
 REM SellerSprite/SIF extensions) into the tool profile, so you never log in
 REM again. The copy needs Edge closed for a moment to avoid locked files.
 if not exist "!TOOL_PROFILE!\Default\Preferences" (
-    echo       首次使用：正在复制你当前已登录的 Edge（登录和扩展都带过来，无需重新登录）...
-    echo       First run: copying your logged-in Edge profile ^(logins + extensions^) ...
-    echo       为了完整复制，需要先关闭 Edge 几秒钟。
+    echo   ============================================================
+    echo     首次使用 / First-time setup
+    echo   ============================================================
+    echo.
+    echo   工具要把你“当前已登录”的 Edge 复制一份给采集用，
+    echo   这样你就不用重新登录，卖家精灵 / SIF 扩展也一起带过来。
+    echo.
+    echo   复制时需要把 Edge 关闭几秒钟（之后可以马上重新打开）。
+    echo   *** 请先保存好正在浏览的网页内容，再继续。***
+    echo.
+    echo   The tool will copy your CURRENT logged-in Edge profile so you
+    echo   never log in again. Edge must close for a few seconds to copy.
+    echo   *** Please save any open work in Edge before continuing. ***
+    echo.
+    echo   按任意键开始复制（或直接关闭本窗口取消）...
+    echo   Press any key to start copying ^(or close this window to cancel^) ...
+    pause > nul
+    echo.
+    echo       正在关闭 Edge 并复制... / Closing Edge and copying ...
     taskkill /f /im msedge.exe > "%TEMP%\_amzchk" 2>&1
     ping -n 3 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
     if not exist "!TOOL_PROFILE!" mkdir "!TOOL_PROFILE!"
@@ -114,7 +130,8 @@ if not exist "!TOOL_PROFILE!\Default\Preferences" (
     robocopy "!MAIN_PROFILE!" "!TOOL_PROFILE!" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP ^
         /XD "Cache" "Code Cache" "GPUCache" "Service Worker" "DawnCache" "GrShaderCache" "ShaderCache" ^
         /XF "lockfile" "SingletonLock" "SingletonCookie" "SingletonSocket" > "%TEMP%\_amzchk" 2>&1
-    echo       复制完成。你现在可以重新打开你平时用的 Edge，不受影响。
+    echo       复制完成！你现在可以重新打开平时用的 Edge，完全不受影响。
+    echo       Copy done. You can reopen your normal Edge now - unaffected.
     echo.
 )
 
