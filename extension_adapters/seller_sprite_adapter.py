@@ -31,24 +31,12 @@ class SellerSpriteAdapter(BaseExtensionAdapter):
     def extract_sync(self, page, asin: str) -> dict:
         """
         Read SellerSprite data from the live Playwright page (sync).
-        Waits up to 8 seconds for the extension overlay to appear before reading.
+
+        NOTE: The caller is responsible for waiting until the overlay has
+        loaded (see BrowserController.wait_for_seller_sprite). This method
+        only reads whatever is currently in the DOM.
         """
         result = self.empty_data()
-        try:
-            # Wait until 卖家精灵 has injected at least one recognisable element.
-            # The panel always contains one of these Chinese keywords once loaded.
-            page.wait_for_function(
-                """() => {
-                    const keywords = ['近30天销量', '月销量', '销售额', 'FBA费用', '毛利率', '全部流量'];
-                    const body = document.body.innerText || '';
-                    return keywords.some(kw => body.includes(kw));
-                }""",
-                timeout=20000,
-            )
-        except Exception:
-            # Extension not present or didn't load in time — return empty
-            logger.debug(f"SellerSprite overlay not detected for {asin}, skipping.")
-            return result
         try:
             data = page.evaluate("""() => {
                 // Find the text content of the element that immediately follows

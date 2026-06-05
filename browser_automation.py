@@ -146,6 +146,60 @@ class BrowserController:
             raise RuntimeError("Browser not launched.")
         return self._page.content()
 
+    # Keywords that the 卖家精灵 overlay reliably renders once it has loaded.
+    _SS_KEYWORDS = [
+        "近30天销量", "月销量", "销售额", "FBA费用",
+        "毛利率", "全部流量", "自然搜索词", "广告流量",
+    ]
+
+    def wait_for_seller_sprite(
+        self,
+        timeout_s: float = 20.0,
+        settle_s: float = 2.5,
+        poll_s: float = 0.5,
+    ) -> bool:
+        """
+        Wait until the SellerSprite (卖家精灵) overlay has injected its data
+        into the current page.
+
+        Detection: poll the page body for any known overlay keyword.
+        Once detected, sleep `settle_s` extra seconds so every field finishes
+        rendering before the adapter reads the DOM.
+
+        Returns True if the overlay was detected, False on timeout
+        (extension not installed, not logged in, or still loading).
+        """
+        if self._page is None:
+            return False
+
+        keywords_js = "[" + ",".join(f'"{k}"' for k in self._SS_KEYWORDS) + "]"
+        check_js = (
+            "() => { const kws = " + keywords_js + "; "
+            "const body = document.body ? (document.body.innerText || '') : ''; "
+            "return kws.some(kw => body.includes(kw)); }"
+        )
+
+        deadline = time.time() + timeout_s
+        detected = False
+        while time.time() < deadline:
+            try:
+                if self._page.evaluate(check_js):
+                    detected = True
+                    break
+            except Exception:
+                pass
+            # Nudge lazy content / extension rendering by a small scroll
+            try:
+                self._page.evaluate("window.scrollBy(0, 250)")
+            except Exception:
+                pass
+            time.sleep(poll_s)
+
+        if detected:
+            # Give the overlay extra time to fully populate every field
+            time.sleep(settle_s)
+        return detected
+
     def get_page(self):
         """Return the Playwright page object."""
         return self._page

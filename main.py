@@ -197,6 +197,20 @@ def run_collection(task_id: str, params: dict):
                         _log(task_id, f"  详情页 {idx+1}/{len(page_products)}: {product['asin']}")
                         browser.navigate(detail_url)
                         browser.scroll_to_bottom()
+
+                        # Wait for the 卖家精灵 overlay to inject before reading
+                        _log(task_id, "    等待卖家精灵插件加载 / Waiting for SellerSprite …")
+                        ss_ready = browser.wait_for_seller_sprite(
+                            timeout_s=config.EXTENSION_WAIT_TIMEOUT,
+                            settle_s=config.EXTENSION_SETTLE_DELAY,
+                            poll_s=config.EXTENSION_POLL_INTERVAL,
+                        )
+                        if ss_ready:
+                            _log(task_id, "    ✅ 插件已加载 / SellerSprite detected")
+                        else:
+                            _log(task_id, "    ⚠️ 未检测到插件数据 / SellerSprite not detected "
+                                          "(未安装/未登录/加载超时)")
+
                         detail_html = browser.get_page_html()
                         detail_data = parse_product_detail(detail_html, product["asin"])
                         # Merge detail data into product dict (detail wins for non-empty values)
@@ -204,10 +218,11 @@ def run_collection(task_id: str, params: dict):
                             if val:
                                 product[key] = val
                         # Read SellerSprite extension overlay from the live page
-                        ss_data = _ss_adapter.extract_sync(browser.get_page(), product["asin"])
-                        for key, val in ss_data.items():
-                            if val:
-                                product[key] = val
+                        if ss_ready:
+                            ss_data = _ss_adapter.extract_sync(browser.get_page(), product["asin"])
+                            for key, val in ss_data.items():
+                                if val:
+                                    product[key] = val
                         browser.wait(config.REQUEST_DELAY_MIN, config.REQUEST_DELAY_MAX)
                     except Exception as detail_err:
                         _log(task_id, f"    详情页错误 / Detail page error: {detail_err}")

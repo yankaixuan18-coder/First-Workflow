@@ -32,6 +32,13 @@ MAX_PRODUCTS_DEFAULT = 100
 REQUEST_DELAY_MIN = 2.0   # seconds between page loads
 REQUEST_DELAY_MAX = 4.0
 
+# SellerSprite (卖家精灵) extension wait settings
+# How long to wait for the extension overlay to appear on a detail page,
+# and how much extra time to let all fields finish rendering once detected.
+EXTENSION_WAIT_TIMEOUT = 20.0   # seconds — max time to wait for the panel
+EXTENSION_SETTLE_DELAY = 2.5    # seconds — extra render time after detection
+EXTENSION_POLL_INTERVAL = 0.5   # seconds — how often to re-check while waiting
+
 # Output directory for exported Excel files
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 
