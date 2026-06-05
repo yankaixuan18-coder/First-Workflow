@@ -239,17 +239,12 @@ def run_collection(task_id: str, params: dict):
             browser.launch()
         except RuntimeError as cdp_err:
             if use_cdp and "Could not connect" in str(cdp_err):
-                _log(task_id, f"⚠️ 无法连接到Edge CDP: {cdp_err}")
-                _log(task_id, "   CDP 未就绪，正在打开工具专用浏览器窗口 (fallback) …")
-                _log(task_id, "   首次使用：请在弹出的Edge窗口中安装卖家精灵/SIF扩展并登录Amazon。")
-                _log(task_id, "   之后每次只需保持该窗口开着，采集时会自动连接，无需任何操作。")
-                browser = BrowserController(
-                    chrome_user_data_dir=chrome_user_data_dir,
-                    chrome_profile=chrome_profile,
-                    headless=False,
-                    use_cdp=False,
-                )
-                browser.launch()
+                _log(task_id, "⚠️ 无法连接到你的 Edge（调试端口未开启）。")
+                _log(task_id, "   请先双击运行 open-edge.bat，它会把你的 Edge 重启一次以开启调试。")
+                _log(task_id, "   你的登录和扩展（卖家精灵/SIF）全部保留。之后保持窗口开着，再点开始采集即可。")
+                raise RuntimeError(
+                    "Edge 调试端口未开启。请先运行 open-edge.bat，再回来点「开始采集」。"
+                ) from cdp_err
             else:
                 raise
         _log(task_id, "浏览器连接成功 / Browser ready.")
