@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-detail-v3"
+BUILD_VERSION = "2026-06-05-detail-v4"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -230,11 +230,15 @@ def run_collection(task_id: str, params: dict):
 
             # Optionally fetch detail pages for richer data
             if fetch_details:
+                _log(task_id, f"  开始逐个打开详情页 / Opening detail pages "
+                              f"({min(len(page_products), max_products - len(all_products))} 个)…")
                 for idx, product in enumerate(page_products):
                     if len(all_products) + idx >= max_products:
                         break
                     detail_url = product.get("product_url", "")
                     if not detail_url or not product.get("asin"):
+                        _log(task_id, f"    跳过 / Skip (缺少URL或ASIN): "
+                                      f"asin={product.get('asin','')!r} url={detail_url!r}")
                         continue
                     try:
                         _log(task_id, f"  详情页 {idx+1}/{len(page_products)}: {product['asin']}")

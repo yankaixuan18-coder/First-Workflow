@@ -112,14 +112,22 @@ def parse_search_results(html: str, page_url: str, page_num: int) -> list:
         if img_el:
             product["main_image_url"] = img_el.get("src", "")
 
-        # Product URL
-        link_el = item.select_one("h2 a[href]")
-        if link_el:
-            href = link_el.get("href", "")
-            if href.startswith("http"):
-                product["product_url"] = href
-            else:
-                product["product_url"] = marketplace_base + href
+        # Product URL — try several link locations, then fall back to ASIN
+        for link_sel in (
+            "h2 a[href]",
+            "a.a-link-normal.s-no-outline[href]",
+            "a.a-link-normal[href*='/dp/']",
+            ".a-link-normal[href*='/dp/']",
+        ):
+            link_el = item.select_one(link_sel)
+            if link_el:
+                href = link_el.get("href", "")
+                if href:
+                    product["product_url"] = href if href.startswith("http") else marketplace_base + href
+                    break
+        # Robust fallback: build the canonical product URL straight from the ASIN
+        if not product["product_url"] and asin:
+            product["product_url"] = f"{marketplace_base}/dp/{asin}"
 
         # Coupon
         coupon_el = item.select_one(".s-coupon-unclipped") or item.select_one("[data-csa-c-type='coupon']")
