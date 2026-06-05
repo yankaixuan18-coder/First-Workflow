@@ -3,11 +3,15 @@ Playwright Microsoft Edge controller with user profile support.
 Runs in sync mode so it can be used from background threads.
 
 Two launch modes:
-  - CDP mode (default): connects to an already-running Edge instance that was
-    started with --remote-debugging-port=9222. All existing logins, cookies,
-    and extensions (卖家精灵, SIF, etc.) remain active.
-  - Persistent context mode (fallback): launches a new Edge window using the
-    user's real profile directory.
+  - Persistent context mode (default, EDGE_USE_CDP=false): Playwright launches
+    Edge directly against ./browser-profile — a copy of the user's logged-in
+    Edge made by start.bat — so all logins and extensions (卖家精灵, SIF, …)
+    come along. Crucially we strip Playwright's default --disable-extensions
+    switch so those extensions actually load (Playwright disables every
+    extension by default, which would leave the SellerSprite panel empty).
+  - CDP mode (EDGE_USE_CDP=true): connects to an already-running Edge started
+    with --remote-debugging-port=9222. Kept as a fallback; Edge 136+ blocks the
+    debug port on the default profile, which is why persistent mode is default.
 """
 import os
 import random
@@ -40,6 +44,7 @@ class BrowserController:
         self._context = None
         self._page = None
         self._cdp_connected = False
+        self._profile_path = ""  # set in persistent mode
 
     def launch(self):
         """
@@ -144,6 +149,7 @@ class BrowserController:
         project_root = os.path.dirname(os.path.abspath(__file__))
         profile_path = os.path.join(project_root, "browser-profile")
         os.makedirs(profile_path, exist_ok=True)
+        self._profile_path = profile_path
 
         logger.info(f"Launching dedicated Edge profile at: {profile_path}")
         self._playwright = sync_playwright().start()
@@ -159,7 +165,12 @@ class BrowserController:
                     "--no-first-run",
                     "--no-default-browser-check",
                 ],
-                ignore_default_args=["--enable-automation"],
+                # Playwright's defaults include "--disable-extensions" (which would
+                # silence SellerSprite/SIF) and "--enable-automation" (which makes
+                # Edge flag the session as automated and refuse some extension
+                # behaviour). Strip both so the copied profile's extensions load
+                # exactly as they do in the user's normal Edge.
+                ignore_default_args=["--enable-automation", "--disable-extensions"],
                 viewport=None,
             )
         except Exception as exc:
@@ -183,6 +194,130 @@ class BrowserController:
             logger.warning(f"Could not add stealth init script: {exc}")
 
         logger.info("Edge launched successfully.")
+
+    def list_profile_extensions(self) -> list:
+        """
+        Read extension names from the on-disk profile
+        (browser-profile/Default/Extensions/<id>/<ver>/manifest.json).
+        Confirms which extensions were copied in by start.bat, independent of
+        whether they have started yet. Returns a list of "Name (id)" strings.
+        """
+        import json as _json
+
+        if not self._profile_path:
+            return []
+        ext_root = os.path.join(self._profile_path, "Default", "Extensions")
+        if not os.path.isdir(ext_root):
+            return []
+
+        found = []
+        try:
+            ext_ids = os.listdir(ext_root)
+        except Exception:
+            return []
+        for ext_id in ext_ids:
+            ext_dir = os.path.join(ext_root, ext_id)
+            if not os.path.isdir(ext_dir):
+                continue
+            # Pick the highest version sub-folder that has a manifest.json
+            manifest = None
+            try:
+                versions = sorted(os.listdir(ext_dir))
+            except Exception:
+                versions = []
+            for ver in reversed(versions):
+                mpath = os.path.join(ext_dir, ver, "manifest.json")
+                if os.path.isfile(mpath):
+                    try:
+                        with open(mpath, "r", encoding="utf-8") as fh:
+                            manifest = _json.load(fh)
+                    except Exception:
+                        manifest = None
+                    break
+            name = ""
+            if isinstance(manifest, dict):
+                name = str(manifest.get("name", "") or "")
+                # Resolve localized names (__MSG_xxx__) best-effort from _locales
+                if name.startswith("__MSG_"):
+                    name = self._resolve_msg_name(ext_dir, versions, manifest, name)
+            found.append(f"{name or '?'} ({ext_id})")
+        return found
+
+    @staticmethod
+    def _resolve_msg_name(ext_dir, versions, manifest, raw_name) -> str:
+        """Best-effort resolve a __MSG_key__ extension name from _locales."""
+        import json as _json
+
+        key = raw_name.strip("_").replace("MSG_", "", 1)
+        default_locale = str(manifest.get("default_locale", "en") or "en")
+        for ver in reversed(versions):
+            for locale in (default_locale, "en", "en_US", "zh_CN"):
+                mpath = os.path.join(ext_dir, ver, "_locales", locale, "messages.json")
+                if os.path.isfile(mpath):
+                    try:
+                        with open(mpath, "r", encoding="utf-8") as fh:
+                            msgs = _json.load(fh)
+                        entry = msgs.get(key) or msgs.get(key.lower())
+                        if isinstance(entry, dict) and entry.get("message"):
+                            return str(entry["message"])
+                    except Exception:
+                        pass
+        return raw_name
+
+    def list_loaded_extensions(self) -> list:
+        """
+        Best-effort list of extension IDs currently *live* in the context
+        (MV3 service workers + MV2 background pages). Proves the browser has
+        actually loaded & enabled the extensions — not just that they're on
+        disk. MV3 service workers start lazily, so call this after visiting an
+        Amazon page so SellerSprite's worker has had a reason to wake up.
+        """
+        if self._context is None:
+            return []
+        ids = set()
+        try:
+            for sw in self._context.service_workers:
+                if sw.url.startswith("chrome-extension://"):
+                    ids.add(sw.url.split("/")[2])
+        except Exception:
+            pass
+        try:
+            for bp in self._context.background_pages:
+                if bp.url.startswith("chrome-extension://"):
+                    ids.add(bp.url.split("/")[2])
+        except Exception:
+            pass
+        return sorted(ids)
+
+    def ensure_reviews_loaded(self):
+        """
+        Scroll the 'Customers say' / reviews region into view and dwell so its
+        lazy-loaded AI summary and topic tags finish their async fetch before we
+        read the HTML. Without this the widget is often still empty at capture
+        time even though it renders fine for a human a second later.
+        """
+        if self._page is None:
+            return
+        selectors = [
+            "[data-hook='cr-insights-widget-aspects']",
+            "#cr-summarization-insights-content",
+            "#cr-dp-summarization-insights-content",
+            ".cr-lighthouse-terms",
+            "#reviewsMedley",
+            "#customer-reviews_feature_div",
+        ]
+        for sel in selectors:
+            try:
+                el = self._page.query_selector(sel)
+            except Exception:
+                el = None
+            if el:
+                try:
+                    el.scroll_into_view_if_needed(timeout=3000)
+                    time.sleep(random.uniform(1.5, 2.5))
+                except Exception:
+                    pass
+                break
 
     def navigate(self, url: str):
         """
@@ -273,20 +408,33 @@ class BrowserController:
             "return kws.some(kw => body.includes(kw)); }"
         )
 
-        deadline = time.time() + timeout_s
-        detected = False
-        while time.time() < deadline:
+        def _poll(seconds: float) -> bool:
+            deadline = time.time() + seconds
+            while time.time() < deadline:
+                try:
+                    if self._page.evaluate(check_js):
+                        return True
+                except Exception:
+                    pass
+                try:
+                    self._page.evaluate("window.scrollBy(0, 250)")
+                except Exception:
+                    pass
+                time.sleep(poll_s)
+            return False
+
+        detected = _poll(timeout_s)
+
+        # Second chance: a just-enabled extension's service worker can miss the
+        # very first page load after launch. One reload usually wakes it and the
+        # SellerSprite panel then injects on the reloaded page.
+        if not detected:
             try:
-                if self._page.evaluate(check_js):
-                    detected = True
-                    break
+                self._page.reload(wait_until="domcontentloaded", timeout=30_000)
+                time.sleep(random.uniform(1.5, 2.5))
+                detected = _poll(min(timeout_s, 12.0))
             except Exception:
                 pass
-            try:
-                self._page.evaluate("window.scrollBy(0, 250)")
-            except Exception:
-                pass
-            time.sleep(poll_s)
 
         if detected:
             time.sleep(settle_s)

@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-dedup-v16"
+BUILD_VERSION = "2026-06-05-ext-v17"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -318,6 +318,29 @@ def run_collection(task_id: str, params: dict):
         except Exception as warm_err:
             _log(task_id, f"  首页热身警告 / Warm-up warning: {warm_err}")
 
+        # Diagnostics: confirm the SellerSprite/SIF extensions came across in the
+        # copied profile AND that the browser actually loaded them. Playwright
+        # disables extensions by default; we strip that switch, so this line is
+        # how we verify it worked. "on disk" is definitive; "live" can lag
+        # because MV3 service workers wake lazily.
+        if fetch_details:
+            try:
+                # On-disk check only applies to the persistent (copied-profile)
+                # mode; in CDP mode the profile path isn't ours to inspect.
+                if not use_cdp:
+                    on_disk = browser.list_profile_extensions()
+                    if on_disk:
+                        _log(task_id, f"  扩展(已复制 on disk) {len(on_disk)} 个: "
+                                      + "; ".join(on_disk[:12]))
+                    else:
+                        _log(task_id, "  ⚠️ 未在采集浏览器配置里找到任何扩展 / No extensions in profile "
+                                      "(start.bat 可能未复制成功，请删除 browser-profile 后重跑 start.bat)")
+                live = browser.list_loaded_extensions()
+                if live:
+                    _log(task_id, f"  扩展(已加载 live) {len(live)} 个: " + ", ".join(live))
+            except Exception as ext_err:
+                _log(task_id, f"  扩展检测警告 / Extension check warning: {ext_err}")
+
         for page_num in range(1, max_pages + 1):
             if is_keyword:
                 page_url = build_search_url(keyword_or_url, marketplace_url, page_num)
@@ -380,8 +403,17 @@ def run_collection(task_id: str, params: dict):
                         if ss_ready:
                             _log(task_id, "    ✅ 插件已加载 / SellerSprite detected")
                         else:
-                            _log(task_id, "    ⚠️ 未检测到插件数据 / SellerSprite not detected "
-                                          "(未安装/未登录/加载超时)")
+                            live = browser.list_loaded_extensions()
+                            if live:
+                                _log(task_id, "    ⚠️ 未检测到插件数据 / SellerSprite panel not found — "
+                                              f"扩展已加载({len(live)}个)，多半是卖家精灵未登录，"
+                                              "或该页面插件不显示数据。请在采集浏览器里登录卖家精灵后重试。")
+                            else:
+                                _log(task_id, "    ⚠️ 未检测到插件数据 / SellerSprite not detected — "
+                                              "浏览器未加载任何扩展。请删除 browser-profile 文件夹后重跑 start.bat 重新复制。")
+
+                        # Let the lazy-loaded "Customers say" widget finish before capture
+                        browser.ensure_reviews_loaded()
 
                         detail_html = browser.get_page_html()
                         detail_data = parse_product_detail(detail_html, product["asin"])
