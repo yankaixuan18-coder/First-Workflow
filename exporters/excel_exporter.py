@@ -69,24 +69,27 @@ COLUMNS = [
     ("collection_timestamp",     "采集时间(Timestamp)",            "text",  G_BASIC),
 
     # ---------------- 成本项 Costs (per unit) ----------------
-    ("product_cost",             "采购成本(Product Cost)",          "money",             G_COST),
-    ("product_cost_pct",         "采购占比%",                       "formula:pct:product_cost",  G_COST),
-    ("freight_cost",             "头程运费(Freight)",               "money",             G_COST),
-    ("freight_cost_pct",         "头程占比%",                       "formula:pct:freight_cost",  G_COST),
-    ("ss_fba_fee",               "FBA配送费(FBA Fee)",              "money",             G_COST),
-    ("ss_fba_fee_pct",           "FBA占比%",                        "formula:pct:ss_fba_fee",    G_COST),
-    ("referral_fee",             "平台佣金~15%(Referral Fee)",      "formula:referral_fee",      G_COST),
-    ("referral_fee_pct",         "佣金占比%",                       "formula:pct:referral_fee",  G_COST),
-    ("storage_fee",              "仓储费(Storage Fee)",            "money",             G_COST),
-    ("storage_fee_pct",          "仓储占比%",                       "formula:pct:storage_fee",   G_COST),
-    ("ad_cost",                  "广告费(Ad Cost)",                "money",             G_COST),
-    ("ad_cost_pct",              "广告占比%",                       "formula:pct:ad_cost",       G_COST),
-    ("return_cost",              "退货成本(Returns)",              "money",             G_COST),
-    ("return_cost_pct",          "退货占比%",                       "formula:pct:return_cost",   G_COST),
-    ("other_cost",               "其他成本(Other Cost)",           "money",             G_COST),
-    ("other_cost_pct",           "其他占比%",                       "formula:pct:other_cost",    G_COST),
-    ("total_cost",               "总成本(Total Cost)",             "formula:total_cost",        G_COST),
-    ("total_cost_pct",           "总成本占比%",                     "formula:pct:total_cost",    G_COST),
+    # 金额已知类：填金额 → 公式算占比
+    ("product_cost",             "采购成本(Product Cost)",          "money",                      G_COST),
+    ("product_cost_pct",         "采购占比%",                       "formula:pct:product_cost",   G_COST),
+    ("freight_cost",             "头程运费(Freight)",               "money",                      G_COST),
+    ("freight_cost_pct",         "头程占比%",                       "formula:pct:freight_cost",   G_COST),
+    ("ss_fba_fee",               "FBA配送费(FBA Fee)",              "money",                      G_COST),
+    ("ss_fba_fee_pct",           "FBA占比%",                        "formula:pct:ss_fba_fee",     G_COST),
+    ("storage_fee",              "仓储费(Storage Fee)",            "money",                      G_COST),
+    ("storage_fee_pct",          "仓储占比%",                       "formula:pct:storage_fee",    G_COST),
+    ("other_cost",               "其他成本(Other Cost)",           "money",                      G_COST),
+    ("other_cost_pct",           "其他占比%",                       "formula:pct:other_cost",     G_COST),
+    # 占比已知类：填占比% → 公式算金额
+    ("referral_fee_pct",         "平台佣金占比%(填小数如0.15)",      "pct_input:0.15",             G_COST),
+    ("referral_fee",             "平台佣金(Referral Fee)",          "formula:from_pct:referral_fee_pct", G_COST),
+    ("ad_cost_pct",              "广告费占比%(填小数如0.10)",        "pct_input:0",                G_COST),
+    ("ad_cost",                  "广告费(Ad Cost)",                "formula:from_pct:ad_cost_pct", G_COST),
+    ("return_cost_pct",          "退货占比%(填小数如0.05)",          "pct_input:0",                G_COST),
+    ("return_cost",              "退货成本(Returns)",              "formula:from_pct:return_cost_pct", G_COST),
+    # 汇总
+    ("total_cost",               "总成本(Total Cost)",             "formula:total_cost",         G_COST),
+    ("total_cost_pct",           "总成本占比%",                     "formula:pct:total_cost",     G_COST),
 
     # ---------------- 收入项 Revenue (per unit) ----------------
     ("price",                    "售价(Selling Price)",            "money", G_REVENUE),
@@ -148,18 +151,16 @@ def export(products: list, output_path: str) -> str:
 
     letters = _col_letters()
 
-    # Cost item keys that contribute real values (money + referral_fee formula),
-    # excluding pct columns and the total_cost itself.
+    # Cost item keys that contribute real monetary values to the total.
+    # Includes: money cols + from_pct formula cols (referral/ad/return).
+    # Excludes: pct_input cols, formula:pct cols, and total_cost itself.
     cost_value_keys = [
         k for k, _, kind, grp in COLUMNS
         if grp == G_COST
-        and kind != "formula:total_cost"
+        and kind not in ("formula:total_cost", "pct_input:0", "pct_input:0.15")
         and not kind.startswith("formula:pct")
-        and not k.endswith("_pct")
+        and not kind.startswith("pct_input")
     ]
-    # Still keep first/last for backward compat signature; actual sum built per-row
-    cost_first = letters[cost_value_keys[0]]
-    cost_last = letters[cost_value_keys[-1]]
 
     # ---------- Row 1: group bands ----------
     # Find contiguous runs of the same group and merge them.
@@ -199,13 +200,17 @@ def export(products: list, output_path: str) -> str:
             if kind == "money":
                 cell.value = _parse_money(product.get(key))
                 cell.number_format = MONEY_FMT
+            elif kind.startswith("pct_input:"):
+                # User-editable percentage cell. Pre-fill with default decimal value.
+                default_str = kind.split(":", 1)[1]
+                default_val = float(default_str) if default_str else None
+                cell.value = default_val if default_val else None
+                cell.number_format = PCT_FMT
             elif kind.startswith("formula:"):
                 name = kind.split(":", 1)[1]
                 cell.value = _formula(name, row_idx, letters, cost_value_keys)
-                if name in ("profit_margin",) or name.startswith("pct:"):
-                    cell.number_format = PCT_FMT
-                else:
-                    cell.number_format = MONEY_FMT
+                is_pct = (name in ("profit_margin",) or name.startswith("pct:"))
+                cell.number_format = PCT_FMT if is_pct else MONEY_FMT
             else:  # text
                 cell.value = str(product.get(key, "") or "")
 
@@ -239,7 +244,14 @@ def _formula(name: str, row: int, letters: dict, cost_value_keys: list) -> str:
     price  = f"{letters['price']}{row}"
     other_rev = f"{letters['other_revenue']}{row}"
 
+    # from_pct:<pct_key> — money = price × pct_input cell
+    if name.startswith("from_pct:"):
+        pct_key = name[9:]
+        pct_cell = f"{letters[pct_key]}{row}"
+        return f'=IF({pct_cell}="","",{price}*{pct_cell})'
+
     if name == "referral_fee":
+        # Legacy fallback — column now driven by referral_fee_pct input
         return f"={price}*0.15"
 
     if name == "total_cost":
