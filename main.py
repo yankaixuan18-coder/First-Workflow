@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-market-v15"
+BUILD_VERSION = "2026-06-05-dedup-v16"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -106,6 +106,34 @@ def _field_summary(product: dict, fields: list) -> str:
         else:
             parts.append(f"✗{label}")
     return "  ".join(parts)
+
+
+def _dedup_products(products: list) -> tuple:
+    """
+    Collapse products that belong to the same parent (父体).
+
+    Two products are treated as the same parent when their 品牌(brand),
+    卖家(seller_name) AND BSR排名(bsr) are all identical and non-empty.
+    Only the first occurrence is kept.
+
+    Returns (deduped_list, removed_count).
+    """
+    seen = set()
+    out = []
+    removed = 0
+    for p in products:
+        brand = str(p.get("brand", "") or "").strip().lower()
+        seller = str(p.get("seller_name", "") or "").strip().lower()
+        bsr = str(p.get("bsr", "") or "").strip().lower()
+        # Only dedup when we have enough signal (all three present)
+        if brand and seller and bsr:
+            key = (brand, seller, bsr)
+            if key in seen:
+                removed += 1
+                continue
+            seen.add(key)
+        out.append(p)
+    return out, removed
 
 
 def _finish(task_id: str, excel_path: str, products: list):
@@ -391,6 +419,15 @@ def run_collection(task_id: str, params: dict):
         # Trim to max_products
         all_products = all_products[:max_products]
         _log(task_id, f"采集完成 / Collection complete. 共 {len(all_products)} 个商品。")
+
+        # Deduplicate same-parent products (same 品牌 + 卖家 + BSR)
+        before = len(all_products)
+        all_products, removed = _dedup_products(all_products)
+        if removed:
+            _log(task_id, f"去重 / Dedup: 合并同父体(品牌+卖家+BSR相同) {removed} 个，"
+                          f"{before} → {len(all_products)} 个。")
+        else:
+            _log(task_id, "去重 / Dedup: 未发现重复父体。")
 
         # Optional AI analysis
         market_summary = ""
