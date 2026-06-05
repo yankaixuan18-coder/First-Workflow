@@ -168,7 +168,7 @@ def _run(provider: str, api_key: str, model: str, system: str, prompt: str,
 
         last_result = result
         # Retry only on empty/filtered responses — not on real errors or actual content
-        if result and result not in ("[空响应]",) and not result.startswith("[AI错误:"):
+        if result and not result.startswith("[空响应") and not result.startswith("[AI错误:"):
             return result
         if attempt < retries:
             wait = 2.0 * (attempt + 1)
@@ -181,8 +181,11 @@ def _run(provider: str, api_key: str, model: str, system: str, prompt: str,
 
 def evaluate(product: dict, provider: str, api_key: str, model: str = "", timeout: int = 60) -> str:
     """Return an AI evaluation string for ONE product, or an error message."""
+    # Generous token budget: reasoning models (e.g. deepseek-v4-pro) spend
+    # tokens on hidden reasoning before the answer, so a small cap can truncate
+    # the visible content to empty (finish_reason='length').
     return _run(provider, api_key, model, _SYSTEM_PROMPT, _build_prompt(product),
-                max_tokens=400, timeout=timeout)
+                max_tokens=1200, timeout=timeout)
 
 
 def evaluate_market(products: list, keyword: str, provider: str, api_key: str,
@@ -223,7 +226,7 @@ def categorize_products(products: list, provider: str, api_key: str,
 
     prompt = "请对以下产品进行分类：\n" + "\n".join(lines)
     raw = _run(provider, api_key, model, _CATEGORIZE_SYSTEM_PROMPT,
-               prompt, max_tokens=1000, timeout=timeout)
+               prompt, max_tokens=2000, timeout=timeout)
 
     logger.info(f"Categorize raw response ({len(raw)} chars): {raw[:400]}")
 
@@ -319,7 +322,19 @@ def _call_openai_compatible(provider: str, api_key: str, model: str, system: str
     )
     choices = out.get("choices", [])
     if choices:
-        return (choices[0].get("message", {}).get("content", "") or "").strip() or "[空响应]"
+        msg = choices[0].get("message", {}) or {}
+        content = (msg.get("content", "") or "").strip()
+        if content:
+            return content
+        # Some reasoning models leave content empty but fill reasoning_content;
+        # fall back to it rather than reporting nothing.
+        reasoning = (msg.get("reasoning_content", "") or "").strip()
+        if reasoning:
+            return reasoning
+        finish = choices[0].get("finish_reason", "")
+        logger.warning(f"Empty content from {provider}, finish_reason={finish!r}")
+        # finish_reason='length' means max_tokens truncated everything → signal caller
+        return "[空响应:length]" if finish == "length" else "[空响应]"
     return "[空响应]"
 
 

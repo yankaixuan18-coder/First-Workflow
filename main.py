@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-retry-v18"
+BUILD_VERSION = "2026-06-05-csdebug-v19"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -419,6 +419,11 @@ def run_collection(task_id: str, params: dict):
 
                         detail_html = browser.get_page_html()
                         detail_data = parse_product_detail(detail_html, product["asin"])
+                        # Surface "Customers say" diagnostics to the task log, then
+                        # drop the debug key so it never lands in the product/Excel.
+                        cs_debug = detail_data.pop("_cs_debug", "")
+                        if cs_debug:
+                            _log(task_id, f"    [调试]买家评价 / Customers-say debug: {cs_debug}")
                         # Merge detail data into product dict (detail wins for non-empty values)
                         for key, val in detail_data.items():
                             if val:

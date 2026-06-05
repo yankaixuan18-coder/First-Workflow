@@ -458,14 +458,20 @@ def parse_product_detail(html: str, asin: str) -> dict:
     if cs_summary_el:
         result["customers_say_summary"] = cs_summary_el.get_text(" ", strip=True)
     else:
-        # Log which cr-* elements ARE present so we can diagnose missing selectors
+        # Surface diagnostics (also pushed to the task log by the caller) so we
+        # can see what the page actually contains and fix selectors precisely.
         cr_ids = [t.get("id", "") for t in soup.find_all(id=True)
                   if "cr-" in (t.get("id", "") or "").lower()]
         cr_hooks = [t.get("data-hook", "") for t in soup.find_all(attrs={"data-hook": True})
                     if "cr-" in (t.get("data-hook", "") or "").lower()]
-        logger.info(
-            f"customers_say not found [{asin}] cr-ids={cr_ids[:10]} cr-hooks={cr_hooks[:10]}"
+        full_text = soup.get_text(" ", strip=True)
+        has_text = "Customers say" in full_text
+        has_medley = bool(soup.select_one("#reviewsMedley, #customer-reviews_feature_div"))
+        result["_cs_debug"] = (
+            f"has_'Customers say'文字={has_text} 评论区存在={has_medley} "
+            f"cr-ids={cr_ids[:8]} cr-hooks={cr_hooks[:8]}"
         )
+        logger.info(f"customers_say not found [{asin}] {result['_cs_debug']}")
 
     # Topic tags: "Comfort (61)", "Quality (47)" …
     topics = []
