@@ -278,7 +278,11 @@
         <span class="text-sm font-semibold text-slate-700 flex items-center gap-2">
           <span class="w-2 h-2 rounded-full bg-green-400"></span> 实时日志
         </span>
-        <button onclick="goStep(2)" id="backToSettings" class="text-xs text-slate-400 hover:text-slate-600">← 修改设置</button>
+        <div class="flex items-center gap-3">
+          <a id="logHeaderLink" href="#" target="_blank"
+             class="hidden text-xs text-brand-600 hover:text-brand-700 font-medium">⬇ 下载日志</a>
+          <button onclick="goStep(2)" id="backToSettings" class="text-xs text-slate-400 hover:text-slate-600">← 修改设置</button>
+        </div>
       </div>
       <div id="logBox" class="h-72"></div>
 

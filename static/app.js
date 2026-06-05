@@ -242,6 +242,9 @@ async function startCollection() {
   }
 
   appendLog(`任务已启动 Task started: ${taskId}`, 'log-success');
+  // Make the log download link available immediately (even if collection fails)
+  const logLink = document.getElementById('logHeaderLink');
+  if (logLink) { logLink.href = `/download-log/${taskId}`; logLink.classList.remove('hidden'); }
   openSSE(taskId);
   pollInterval = setInterval(() => pollStatus(taskId), 3000);
 }
@@ -421,6 +424,8 @@ function resetAll() {
   document.getElementById('previewSection').classList.add('hidden');
   const rs = document.getElementById('resumeSection');
   if (rs) rs.classList.add('hidden');
+  const logLink = document.getElementById('logHeaderLink');
+  if (logLink) logLink.classList.add('hidden');
   document.getElementById('progressBar').style.width = '0%';
   setStatus('待机 Idle', 'idle');
   goStep(1);
