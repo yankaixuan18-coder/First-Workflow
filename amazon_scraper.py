@@ -395,28 +395,77 @@ def parse_product_detail(html: str, asin: str) -> dict:
             break
 
     # "Customers say" — AI-generated summary + topic tags
-    cs_summary_el = soup.select_one(
-        "[data-hook='cr-insights-widget-aspects'] p,"
-        "#cr-dp-summarization-insights-content p,"
-        ".cr-insight-text-wrapper p,"
-        "[data-hook='cr-summarization-attributes-list'] ~ p,"
-        ".a-section.cr-lighthouse-terms + p"
-    )
-    # broader fallback: any <p> that is a child/descendant of the insights widget
+    # Try every known selector variant Amazon has used; all checked before fallbacks.
+    _CS_SUMMARY_SELECTORS = [
+        "[data-hook='cr-insights-widget-aspects'] p",
+        "#cr-dp-summarization-insights-content p",
+        "#cr-summarization-insights-content p",
+        ".cr-insight-text-wrapper p",
+        "[data-hook='cr-summarization-attributes-list'] ~ p",
+        ".a-section.cr-lighthouse-terms + p",
+        # 2024+ variants
+        "[data-hook='cr-insights-content'] p",
+        ".cr-insights-widget-content p",
+        "#cr-dp-customer-insights p",
+        "[id^='cr-dp-summarization'] p",
+        "[class*='cr-insight'] p",
+        "[class*='cr-lighthouse'] p",
+    ]
+    cs_summary_el = None
+    for _s in _CS_SUMMARY_SELECTORS:
+        cs_summary_el = soup.select_one(_s)
+        if cs_summary_el:
+            break
+
+    # Broader fallback: find the widget container, then grab first <p> inside it
     if not cs_summary_el:
         for sel in (
             "[data-hook='cr-insights-widget-aspects']",
             "#cr-dp-summarization-insights-content",
+            "#cr-summarization-insights-content",
             ".cr-lighthouse-terms",
+            "[data-hook='cr-insights-content']",
+            "[id^='cr-dp-summarization']",
         ):
             widget = soup.select_one(sel)
             if widget:
-                p = widget.find_parent("div", attrs={"class": True})
-                if p:
-                    cs_summary_el = p.find("p")
+                cs_summary_el = widget.find("p")
+                if not cs_summary_el:
+                    # try parent one level up
+                    parent = widget.find_parent("div")
+                    if parent:
+                        cs_summary_el = parent.find("p")
                 break
+
+    # Text-search fallback: find a heading whose text IS "Customers say" and
+    # grab the sibling/following paragraph — robust against class-name churn.
+    if not cs_summary_el:
+        for heading in soup.find_all(["h2", "h3", "h4", "span", "div"]):
+            txt = heading.get_text(strip=True)
+            if txt in ("Customers say", "Customers Say"):
+                # Walk forward siblings until we find a <p>
+                for sib in heading.find_next_siblings():
+                    if sib.name == "p":
+                        cs_summary_el = sib
+                        break
+                    p = sib.find("p") if hasattr(sib, "find") else None
+                    if p:
+                        cs_summary_el = p
+                        break
+                if cs_summary_el:
+                    break
+
     if cs_summary_el:
         result["customers_say_summary"] = cs_summary_el.get_text(" ", strip=True)
+    else:
+        # Log which cr-* elements ARE present so we can diagnose missing selectors
+        cr_ids = [t.get("id", "") for t in soup.find_all(id=True)
+                  if "cr-" in (t.get("id", "") or "").lower()]
+        cr_hooks = [t.get("data-hook", "") for t in soup.find_all(attrs={"data-hook": True})
+                    if "cr-" in (t.get("data-hook", "") or "").lower()]
+        logger.info(
+            f"customers_say not found [{asin}] cr-ids={cr_ids[:10]} cr-hooks={cr_hooks[:10]}"
+        )
 
     # Topic tags: "Comfort (61)", "Quality (47)" …
     topics = []
@@ -424,6 +473,9 @@ def parse_product_detail(html: str, asin: str) -> dict:
         "[data-hook='cr-summarization-attribute'] span",
         ".cr-lighthouse-term",
         "[data-hook='cr-insights-widget-aspects'] .a-color-base",
+        "[data-hook='cr-insights-content'] .a-color-base",
+        "[class*='cr-summarization-attribute'] span",
+        "[data-hook^='cr-summarization-attribute']",
     ):
         els = soup.select(tag_sel)
         if els:

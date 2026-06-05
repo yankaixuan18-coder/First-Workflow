@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-ext-v17"
+BUILD_VERSION = "2026-06-05-retry-v18"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -413,7 +413,9 @@ def run_collection(task_id: str, params: dict):
                                               "浏览器未加载任何扩展。请删除 browser-profile 文件夹后重跑 start.bat 重新复制。")
 
                         # Let the lazy-loaded "Customers say" widget finish before capture
-                        browser.ensure_reviews_loaded()
+                        cs_found = browser.ensure_reviews_loaded()
+                        if not cs_found:
+                            logger.debug("ensure_reviews_loaded: widget not present on this page")
 
                         detail_html = browser.get_page_html()
                         detail_data = parse_product_detail(detail_html, product["asin"])

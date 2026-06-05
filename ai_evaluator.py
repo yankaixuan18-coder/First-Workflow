@@ -135,24 +135,47 @@ def _build_market_prompt(products: list, keyword: str) -> str:
 
 
 def _run(provider: str, api_key: str, model: str, system: str, prompt: str,
-         max_tokens: int, timeout: int) -> str:
-    """Dispatch a single chat completion to the chosen provider."""
+         max_tokens: int, timeout: int, retries: int = 2) -> str:
+    """Dispatch a single chat completion to the chosen provider.
+
+    Retries up to `retries` times on empty / filter responses (DeepSeek
+    occasionally returns an empty content block when rate-limited or when its
+    content policy fires, but succeeds on retry).
+    """
+    import time as _time
+
     provider = (provider or "").lower().strip()
     model = (model or "").strip() or DEFAULT_MODELS.get(provider, "")
     if not api_key:
         return "[未提供API Key]"
     if provider not in DEFAULT_MODELS:
         return f"[不支持的模型提供商: {provider}]"
-    try:
-        if provider == "anthropic":
-            return _call_anthropic(api_key, model, system, prompt, max_tokens, timeout)
-        if provider in ("openai", "deepseek"):
-            return _call_openai_compatible(provider, api_key, model, system, prompt, max_tokens, timeout)
-        if provider == "gemini":
-            return _call_gemini(api_key, model, system, prompt, timeout)
-    except Exception as e:
-        logger.warning(f"AI error: {e}")
-        return f"[AI错误: {e}]"
+
+    last_result = "[未知错误]"
+    for attempt in range(1 + retries):
+        try:
+            if provider == "anthropic":
+                result = _call_anthropic(api_key, model, system, prompt, max_tokens, timeout)
+            elif provider in ("openai", "deepseek"):
+                result = _call_openai_compatible(provider, api_key, model, system, prompt, max_tokens, timeout)
+            elif provider == "gemini":
+                result = _call_gemini(api_key, model, system, prompt, timeout)
+            else:
+                result = "[未知错误]"
+        except Exception as e:
+            logger.warning(f"AI error (attempt {attempt+1}): {e}")
+            result = f"[AI错误: {e}]"
+
+        last_result = result
+        # Retry only on empty/filtered responses — not on real errors or actual content
+        if result and result not in ("[空响应]",) and not result.startswith("[AI错误:"):
+            return result
+        if attempt < retries:
+            wait = 2.0 * (attempt + 1)
+            logger.info(f"AI returned empty/error on attempt {attempt+1}, retrying in {wait:.0f}s …")
+            _time.sleep(wait)
+
+    return last_result
     return "[未知错误]"
 
 
@@ -202,11 +225,13 @@ def categorize_products(products: list, provider: str, api_key: str,
     raw = _run(provider, api_key, model, _CATEGORIZE_SYSTEM_PROMPT,
                prompt, max_tokens=1000, timeout=timeout)
 
+    logger.info(f"Categorize raw response ({len(raw)} chars): {raw[:400]}")
+
     import re as _re
     # Extract JSON from response (model may wrap it in markdown code blocks)
     m = _re.search(r'\{.*"categories".*\}', raw, _re.DOTALL)
     if not m:
-        logger.warning(f"Categorize: unexpected response: {raw[:200]}")
+        logger.warning(f"Categorize: no JSON found in response: {raw[:300]}")
         return {"未分类": [p.get("asin", "") for p in products]}
 
     try:

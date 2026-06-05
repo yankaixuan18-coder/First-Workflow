@@ -289,35 +289,56 @@ class BrowserController:
             pass
         return sorted(ids)
 
-    def ensure_reviews_loaded(self):
+    def ensure_reviews_loaded(self) -> bool:
         """
-        Scroll the 'Customers say' / reviews region into view and dwell so its
-        lazy-loaded AI summary and topic tags finish their async fetch before we
-        read the HTML. Without this the widget is often still empty at capture
-        time even though it renders fine for a human a second later.
+        Scroll the 'Customers say' / reviews region into view and wait for its
+        lazy-loaded AI summary to finish its async fetch.
+
+        The widget appears only on products with enough reviews (Amazon threshold
+        is typically 50+ reviews). Returns True if detected, False if absent.
+
+        Strategy:
+        1. Scroll the outer reviews section into view (so Amazon starts its XHR).
+        2. Wait up to 5 s for the inner summary paragraph to appear in the DOM.
+        3. If already absent after waiting, it's not available for this product.
         """
         if self._page is None:
-            return
-        selectors = [
-            "[data-hook='cr-insights-widget-aspects']",
-            "#cr-summarization-insights-content",
-            "#cr-dp-summarization-insights-content",
-            ".cr-lighthouse-terms",
+            return False
+
+        # Step 1: bring the reviews section into view to trigger lazy loads
+        anchor_selectors = [
             "#reviewsMedley",
             "#customer-reviews_feature_div",
+            "#reviews-medley-footer",
         ]
-        for sel in selectors:
+        for sel in anchor_selectors:
             try:
                 el = self._page.query_selector(sel)
-            except Exception:
-                el = None
-            if el:
-                try:
+                if el:
                     el.scroll_into_view_if_needed(timeout=3000)
-                    time.sleep(random.uniform(1.5, 2.5))
-                except Exception:
-                    pass
-                break
+                    time.sleep(random.uniform(1.2, 2.0))
+                    break
+            except Exception:
+                pass
+
+        # Step 2: wait for the "Customers say" summary content to appear
+        content_selectors = [
+            "[data-hook='cr-insights-widget-aspects'] p",
+            "#cr-dp-summarization-insights-content p",
+            "#cr-summarization-insights-content p",
+            ".cr-insight-text-wrapper p",
+            "[data-hook='cr-summarization-attributes-list']",
+            ".cr-lighthouse-terms",
+        ]
+        for sel in content_selectors:
+            try:
+                self._page.wait_for_selector(sel, timeout=5000)
+                time.sleep(random.uniform(0.8, 1.2))
+                return True
+            except Exception:
+                pass
+
+        return False
 
     def navigate(self, url: str):
         """
