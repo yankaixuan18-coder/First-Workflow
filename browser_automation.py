@@ -91,6 +91,18 @@ class BrowserController:
         else:
             self._page = self._context.new_page()
 
+        # Hide automation fingerprints so extensions (卖家精灵/SIF) and Amazon
+        # treat this as a normal browser and inject their data.
+        try:
+            self._context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+                "window.chrome = window.chrome || { runtime: {} };"
+                "Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});"
+                "Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});"
+            )
+        except Exception as exc:
+            logger.warning(f"Could not add stealth init script: {exc}")
+
         logger.info("Edge launched successfully.")
 
     def navigate(self, url: str):

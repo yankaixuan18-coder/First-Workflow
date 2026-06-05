@@ -168,6 +168,15 @@
       </span>
     </label>
 
+    <!-- Manual prepare (confirm plugin before collecting) -->
+    <label class="flex items-start gap-3 p-4 mt-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100">
+      <input id="manualPrepare" type="checkbox" class="h-5 w-5 mt-0.5 accent-brand-500 rounded" />
+      <span>
+        <span class="font-semibold text-slate-700 text-sm">采集前暂停，让我先确认卖家精灵已出现</span>
+        <span class="block text-xs text-slate-500 mt-0.5">开启后会先打开浏览器并暂停，你确认插件面板出现（必要时登录）后，再点「继续采集」。<strong class="text-slate-600">卖家精灵数据采不到时建议勾选。</strong></span>
+      </span>
+    </label>
+
     <!-- Chrome advanced settings -->
     <details class="mt-4 border border-slate-200 rounded-xl">
       <summary class="px-4 py-3 text-sm font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-50 flex items-center gap-2">
@@ -250,6 +259,16 @@
       </div>
       <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
         <div id="progressBar" class="h-3 rounded-full bg-gradient-to-r from-brand-400 to-brand-600 progress-shimmer" style="width:0%"></div>
+      </div>
+
+      <!-- Resume button (shown when paused at manual-prepare step) -->
+      <div id="resumeSection" class="hidden mt-4">
+        <div class="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 mb-2 text-sm text-amber-800">
+          ⏸️ 已暂停：请在弹出的 Edge 窗口里确认<strong>卖家精灵面板已出现</strong>（如未登录请先登录），然后点下方按钮。
+        </div>
+        <button id="resumeBtn" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl shadow transition-colors">
+          ▶️ 继续采集
+        </button>
       </div>
     </div>
 

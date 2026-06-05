@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-detail-v5"
+BUILD_VERSION = "2026-06-05-stealth-v6"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -69,6 +69,7 @@ def _new_task() -> str:
             "excel_path": None,
             "error": None,
             "log_path": log_path,      # full operation log on disk
+            "resume_event": threading.Event(),  # set by /resume to continue past pause
         }
     return task_id
 
@@ -153,6 +154,7 @@ def run_collection(task_id: str, params: dict):
     max_pages: int = int(params.get("max_pages", config.MAX_PAGES_DEFAULT))
     max_products: int = int(params.get("max_products", config.MAX_PRODUCTS_DEFAULT))
     fetch_details: bool = bool(params.get("fetch_details", False))
+    manual_prepare: bool = bool(params.get("manual_prepare", False))
     chrome_user_data_dir: str = params.get(
         "chrome_user_data_dir",
         os.environ.get("CHROME_USER_DATA_DIR", config.get_default_chrome_user_data_dir()),
@@ -187,6 +189,31 @@ def run_collection(task_id: str, params: dict):
         )
         browser.launch()
         _log(task_id, "浏览器启动成功 / Browser launched successfully.")
+
+        # Manual preparation pause: open a product page first so the user can
+        # confirm the 卖家精灵 panel appears (and log in if needed), then click
+        # "继续采集" in the UI before automated collection begins.
+        if manual_prepare and fetch_details:
+            prep_url = f"{marketplace_url}/s?k={keyword_or_url}" if not (
+                keyword_or_url.startswith("http")) else keyword_or_url
+            try:
+                browser.navigate(prep_url)
+            except Exception:
+                pass
+            _log(task_id, "⏸️ 已暂停 / PAUSED: 请在弹出的 Edge 窗口里确认卖家精灵面板已出现"
+                          "（如未登录请先登录），然后回到本页点击「继续采集」。")
+            with tasks_lock:
+                tasks[task_id]["status"] = "waiting"
+                tasks[task_id]["log_queue"].put("STATUS:waiting")
+                ev = tasks[task_id]["resume_event"]
+            # Wait up to 10 minutes for the user to resume
+            resumed = ev.wait(timeout=600)
+            with tasks_lock:
+                tasks[task_id]["status"] = "running"
+            if resumed:
+                _log(task_id, "▶️ 继续采集 / Resumed by user.")
+            else:
+                _log(task_id, "▶️ 等待超时，自动继续 / Resume timed out, continuing.")
 
         # Determine whether input is a URL or a keyword
         if keyword_or_url.startswith("http://") or keyword_or_url.startswith("https://"):
@@ -371,6 +398,7 @@ def start():
         "max_pages": data.get("max_pages", config.MAX_PAGES_DEFAULT),
         "max_products": data.get("max_products", config.MAX_PRODUCTS_DEFAULT),
         "fetch_details": data.get("fetch_details", False),
+        "manual_prepare": data.get("manual_prepare", False),
         "chrome_user_data_dir": data.get(
             "chrome_user_data_dir",
             os.environ.get("CHROME_USER_DATA_DIR", config.get_default_chrome_user_data_dir()),
@@ -490,6 +518,19 @@ def download(task_id: str):
         download_name=os.path.basename(excel_path),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@app.route("/resume/<task_id>", methods=["POST"])
+def resume(task_id: str):
+    """Resume a task that is paused at the manual-prepare step."""
+    with tasks_lock:
+        task = tasks.get(task_id)
+        if not task:
+            return jsonify({"error": "task not found"}), 404
+        ev = task.get("resume_event")
+    if ev:
+        ev.set()
+    return jsonify({"ok": True})
 
 
 @app.route("/download-log/<task_id>")

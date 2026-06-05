@@ -146,6 +146,23 @@ function showDownloadButton(taskId) {
   document.getElementById('downloadSection').classList.remove('hidden');
 }
 
+function showResumeButton(taskId) {
+  const el = document.getElementById('resumeSection');
+  if (!el) return;
+  el.classList.remove('hidden');
+  const btn = document.getElementById('resumeBtn');
+  if (btn) {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = '继续中…';
+      try { await fetch(`/resume/${taskId}`, { method: 'POST' }); } catch (_) {}
+      el.classList.add('hidden');
+      btn.disabled = false;
+      btn.textContent = '▶️ 继续采集';
+    };
+  }
+}
+
 function showError(msg) {
   const el = document.getElementById('errorMsg');
   el.textContent = '❌ ' + msg;
@@ -182,6 +199,7 @@ async function startCollection() {
     max_pages: parseInt(document.getElementById('maxPages').value, 10) || 5,
     max_products: maxProductsTarget,
     fetch_details: document.getElementById('fetchDetails').checked,
+    manual_prepare: (document.getElementById('manualPrepare') || {}).checked || false,
     chrome_user_data_dir: document.getElementById('chromeDir').value.trim(),
     chrome_profile: document.getElementById('chromeProfile').value.trim(),
   };
@@ -242,6 +260,7 @@ function openSSE(taskId) {
 
     if (text.startsWith('STATUS:done')) return finishDone(taskId);
     if (text.startsWith('STATUS:error')) return finishError();
+    if (text.startsWith('STATUS:waiting')) return showResumeButton(taskId);
     if (text.startsWith('ERROR:')) { appendLog(text, 'log-error'); return; }
 
     appendLog(text, /第\s*\d+\s*页|Page\s+\d+/.test(text) ? 'log-page' : null);
@@ -263,6 +282,7 @@ async function pollStatus(taskId) {
     const data = await resp.json();
     setProductCount(data.product_count || 0);
     if (data.status === 'done') finishDone(taskId);
+    else if (data.status === 'waiting') showResumeButton(taskId);
     else if (data.status === 'error') { if (data.error) showError(data.error); finishError(); }
   } catch (_) { /* ignore */ }
 }
@@ -399,6 +419,8 @@ function resetAll() {
   hideError();
   document.getElementById('downloadSection').classList.add('hidden');
   document.getElementById('previewSection').classList.add('hidden');
+  const rs = document.getElementById('resumeSection');
+  if (rs) rs.classList.add('hidden');
   document.getElementById('progressBar').style.width = '0%';
   setStatus('待机 Idle', 'idle');
   goStep(1);
