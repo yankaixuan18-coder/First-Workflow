@@ -167,6 +167,12 @@ def run_collection(task_id: str, params: dict):
         with tasks_lock:
             log_path = tasks.get(task_id, {}).get("log_path", "")
         _log(task_id, f"日志文件 / Log file: {log_path}")
+        _log(task_id, f"采集设置 / Settings: 最多 {max_pages} 页 / {max_products} 个商品，"
+                      f"详情页={'开启 ON' if fetch_details else '关闭 OFF'}")
+        if not fetch_details:
+            _log(task_id, "⚠️ 详情页已关闭！将只采集搜索页基础数据，"
+                          "无法获取卖家精灵数据/卖点/图片/描述/BSR。")
+            _log(task_id, "   如需这些数据，请返回第2步开启「详情页」开关。")
         _log(task_id, f"初始化浏览器 / Initializing browser …")
         _log(task_id, f"Edge profile: {chrome_user_data_dir} [{chrome_profile}]")
 
