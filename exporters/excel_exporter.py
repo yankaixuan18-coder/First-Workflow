@@ -71,7 +71,7 @@ COLUMNS = [
     ("product_cost",             "采购成本(Product Cost)",          "money", G_COST),
     ("freight_cost",             "头程运费(Freight)",               "money", G_COST),
     ("ss_fba_fee",               "FBA配送费(FBA Fee)",              "money", G_COST),
-    ("referral_fee",             "平台佣金(Referral Fee)",          "money", G_COST),
+    ("referral_fee",             "平台佣金~15%(Referral Fee)",      "formula:referral_fee", G_COST),
     ("storage_fee",              "仓储费(Storage Fee)",            "money", G_COST),
     ("ad_cost",                  "广告费(Ad Cost)",                "money", G_COST),
     ("return_cost",              "退货成本(Returns)",              "money", G_COST),
@@ -217,6 +217,9 @@ def _formula(name: str, row: int, letters: dict, cost_first: str, cost_last: str
     price = f"{letters['price']}{row}"
     other_rev = f"{letters['other_revenue']}{row}"
 
+    if name == "referral_fee":
+        # Amazon referral fee defaults to 15% of selling price (category-dependent)
+        return f"={price}*0.15"
     if name == "total_cost":
         return f"=SUM({cost_first}{row}:{cost_last}{row})"
     if name == "total_revenue":
