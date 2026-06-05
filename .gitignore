@@ -39,3 +39,4 @@ playwright/.local-browsers/
 Thumbs.db
 desktop.ini
 .claude/
+browser-profile/

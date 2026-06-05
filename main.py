@@ -240,7 +240,9 @@ def run_collection(task_id: str, params: dict):
         except RuntimeError as cdp_err:
             if use_cdp and "Could not connect" in str(cdp_err):
                 _log(task_id, f"⚠️ 无法连接到Edge CDP: {cdp_err}")
-                _log(task_id, "   正在改用新建Edge窗口模式 (fallback) …")
+                _log(task_id, "   CDP 未就绪，正在打开工具专用浏览器窗口 (fallback) …")
+                _log(task_id, "   首次使用：请在弹出的Edge窗口中安装卖家精灵/SIF扩展并登录Amazon。")
+                _log(task_id, "   之后每次只需保持该窗口开着，采集时会自动连接，无需任何操作。")
                 browser = BrowserController(
                     chrome_user_data_dir=chrome_user_data_dir,
                     chrome_profile=chrome_profile,

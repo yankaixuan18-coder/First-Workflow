@@ -114,10 +114,7 @@ class BrowserController:
             self._playwright = None
             raise RuntimeError(
                 f"Could not connect to Edge at {self.cdp_url}.\n"
-                "Make sure Edge was started with --remote-debugging-port=9222 "
-                "and that NO other Edge window was already open (close all Edge "
-                "windows first, then run start.bat again).\n"
-                f"Last error: {last_exc}"
+                "Run open-edge.bat first to open the tool's dedicated browser window."
             ) from last_exc
 
         # Reuse the first existing context (preserves all logins and extensions)
@@ -134,27 +131,19 @@ class BrowserController:
         logger.info("Connected to existing Edge browser via CDP.")
 
     def _launch_persistent(self):
-        """Launch a new Edge window using the user's real profile directory."""
+        """
+        Fallback: launch Edge with a dedicated profile stored inside the project
+        directory. This runs alongside the user's main Edge (different user-data-dir)
+        so there is never a lockfile conflict, regardless of what else is open.
+        """
         from playwright.sync_api import sync_playwright
 
-        profile_path = self.chrome_user_data_dir
+        # Dedicated profile lives next to the project — never conflicts with main Edge.
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        profile_path = os.path.join(project_root, "browser-profile")
+        os.makedirs(profile_path, exist_ok=True)
 
-        if not os.path.exists(profile_path):
-            raise RuntimeError(
-                f"Edge user data directory not found: {profile_path}\n"
-                "Please set CHROME_USER_DATA_DIR in your .env file to the correct Edge path."
-            )
-
-        lock_file = os.path.join(profile_path, "lockfile")
-        singleton_lock = os.path.join(profile_path, "SingletonLock")
-        for lf in (lock_file, singleton_lock):
-            if os.path.exists(lf):
-                raise RuntimeError(
-                    f"Edge profile is locked: {lf}\n"
-                    "Please close all Edge windows completely before running this tool."
-                )
-
-        logger.info(f"Launching Edge with profile: {profile_path} [{self.chrome_profile}]")
+        logger.info(f"Launching dedicated Edge profile at: {profile_path}")
         self._playwright = sync_playwright().start()
 
         try:
@@ -164,7 +153,6 @@ class BrowserController:
                 headless=False,
                 args=[
                     "--start-maximized",
-                    f"--profile-directory={self.chrome_profile}",
                     "--disable-blink-features=AutomationControlled",
                     "--no-first-run",
                     "--no-default-browser-check",
@@ -175,11 +163,6 @@ class BrowserController:
         except Exception as exc:
             self._playwright.stop()
             self._playwright = None
-            if "is already in use" in str(exc) or "profile" in str(exc).lower():
-                raise RuntimeError(
-                    "Edge profile is already in use by another process.\n"
-                    "Close all Edge windows and try again."
-                ) from exc
             raise RuntimeError(f"Failed to launch Edge: {exc}") from exc
 
         if self._context.pages:
