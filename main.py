@@ -8,7 +8,9 @@ import json
 import logging
 import os
 import queue
+import random
 import threading
+import time
 import uuid
 from datetime import datetime
 
@@ -106,6 +108,22 @@ def _field_summary(product: dict, fields: list) -> str:
         else:
             parts.append(f"✗{label}")
     return "  ".join(parts)
+
+
+def _is_blocked_page(html: str) -> bool:
+    """Detect Amazon's anti-bot / generic error page from the HTML."""
+    if not html or len(html) < 500:
+        return True
+    low = html.lower()
+    markers = (
+        "sorry! something went wrong",
+        "to discuss automated access to amazon data",
+        "we just need to make sure you're not a robot",
+        "type the characters you see in this image",
+        "api-services-support@amazon.com",
+        "enter the characters you see below",
+    )
+    return any(m in low for m in markers)
 
 
 def _dedup_products(products: list) -> tuple:
@@ -290,6 +308,16 @@ def run_collection(task_id: str, params: dict):
             is_keyword = True
             _log(task_id, f"模式: 关键词搜索 / Mode: keyword search -- \"{keyword_or_url}\" on {marketplace_url}")
 
+        # Warm-up: visit the Amazon homepage first so cookies/session settle.
+        # Hitting /s?k=… cold often triggers the "Sorry! Something went wrong"
+        # anti-bot page; a homepage visit first greatly reduces that.
+        try:
+            _log(task_id, "  正在访问 Amazon 首页热身 / Warming up on Amazon homepage …")
+            browser.navigate(marketplace_url)
+            time.sleep(random.uniform(1.5, 3.0))
+        except Exception as warm_err:
+            _log(task_id, f"  首页热身警告 / Warm-up warning: {warm_err}")
+
         for page_num in range(1, max_pages + 1):
             if is_keyword:
                 page_url = build_search_url(keyword_or_url, marketplace_url, page_num)
@@ -298,15 +326,24 @@ def run_collection(task_id: str, params: dict):
 
             _log(task_id, f"第 {page_num} 页 / Page {page_num}: {page_url}")
 
-            try:
-                browser.navigate(page_url)
-            except Exception as nav_err:
-                _log(task_id, f"  导航警告 / Navigation warning: {nav_err}")
-                # Continue anyway — the page may still be parseable
+            # Navigate, retrying if Amazon shows its anti-bot / error page.
+            html = ""
+            for attempt in range(3):
+                try:
+                    browser.navigate(page_url)
+                except Exception as nav_err:
+                    _log(task_id, f"  导航警告 / Navigation warning: {nav_err}")
 
-            _log(task_id, "  页面已加载，正在滚动加载内容 / Page loaded, scrolling …")
-            browser.scroll_to_bottom()
-            html = browser.get_page_html()
+                _log(task_id, "  页面已加载，正在滚动加载内容 / Page loaded, scrolling …")
+                browser.scroll_to_bottom()
+                html = browser.get_page_html()
+
+                if _is_blocked_page(html):
+                    _log(task_id, f"  ⚠️ Amazon 返回了反爬/错误页，正在重试 ({attempt+1}/3) …")
+                    time.sleep(random.uniform(3.0, 6.0))
+                    continue
+                break
+
             _log(task_id, f"  已获取页面HTML ({len(html)} 字符)，开始解析 / Got HTML, parsing …")
 
             page_products = parse_search_results(html, page_url, page_num)
