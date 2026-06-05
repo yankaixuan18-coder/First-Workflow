@@ -78,11 +78,8 @@ class BrowserController:
         else:
             self._context = self._browser.new_context()
 
-        # Reuse an existing tab or open a new one
-        if self._context.pages:
-            self._page = self._context.pages[-1]
-        else:
-            self._page = self._context.new_page()
+        # Always open a new tab so the app UI (localhost:5000) stays untouched
+        self._page = self._context.new_page()
 
         self._cdp_connected = True
         logger.info("Connected to existing Edge browser via CDP.")
@@ -252,7 +249,14 @@ class BrowserController:
         In CDP mode the browser stays open — the user owns it.
         """
         if self._cdp_connected:
-            # Just stop Playwright; leave the user's Edge running
+            # Close only the tab we opened; leave all other tabs and the browser running
+            try:
+                if self._page is not None:
+                    self._page.close()
+            except Exception as exc:
+                logger.warning(f"Error closing scrape tab: {exc}")
+            finally:
+                self._page = None
             try:
                 if self._playwright is not None:
                     self._playwright.stop()
@@ -262,7 +266,6 @@ class BrowserController:
                 self._playwright = None
                 self._browser = None
                 self._context = None
-                self._page = None
             logger.info("Disconnected from Edge (browser left open).")
             return
 
