@@ -150,14 +150,6 @@ def _run(provider: str, api_key: str, model: str, system: str, prompt: str,
             return _call_openai_compatible(provider, api_key, model, system, prompt, max_tokens, timeout)
         if provider == "gemini":
             return _call_gemini(api_key, model, system, prompt, timeout)
-    except urllib.error.HTTPError as e:
-        body = ""
-        try:
-            body = e.read().decode("utf-8", "ignore")[:200]
-        except Exception:
-            pass
-        logger.warning(f"AI HTTP {e.code}: {body}")
-        return f"[AI错误 HTTP {e.code}: {body}]"
     except Exception as e:
         logger.warning(f"AI error: {e}")
         return f"[AI错误: {e}]"
@@ -181,10 +173,35 @@ def evaluate_market(products: list, keyword: str, provider: str, api_key: str,
 
 
 def _post(url: str, headers: dict, payload: dict, timeout: int) -> dict:
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    import http.client
+    import ssl
+    from urllib.parse import urlparse
+
+    # ensure_ascii=True (default) keeps body bytes pure ASCII so no encoding issues
+    data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+
+    parsed = urlparse(url)
+    host = parsed.netloc
+    path = parsed.path + (("?" + parsed.query) if parsed.query else "")
+
+    ctx = ssl.create_default_context()
+    conn = http.client.HTTPSConnection(host, timeout=timeout, context=ctx)
+    try:
+        # Build headers with only ASCII values (api keys, content-type)
+        safe_headers = {k: str(v).encode("ascii", "replace").decode("ascii")
+                        for k, v in headers.items()}
+        safe_headers["Content-Type"] = "application/json"
+        safe_headers["Content-Length"] = str(len(data))
+        conn.request("POST", path, body=data, headers=safe_headers)
+        resp = conn.getresponse()
+        raw = resp.read()
+        if resp.status >= 400:
+            snippet = raw.decode("utf-8", "ignore")[:200]
+            logger.warning(f"AI HTTP {resp.status}: {snippet}")
+            raise RuntimeError(f"HTTP {resp.status}: {snippet}")
+        return json.loads(raw.decode("utf-8"))
+    finally:
+        conn.close()
 
 
 def _call_anthropic(api_key: str, model: str, system: str, prompt: str,
