@@ -345,6 +345,7 @@ def index():
         default_profile=config.DEFAULT_CHROME_PROFILE,
         max_pages_default=config.MAX_PAGES_DEFAULT,
         max_products_default=config.MAX_PRODUCTS_DEFAULT,
+        build_version=BUILD_VERSION,
     )
 
 
