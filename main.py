@@ -240,10 +240,9 @@ def run_collection(task_id: str, params: dict):
         except RuntimeError as cdp_err:
             if use_cdp and "Could not connect" in str(cdp_err):
                 _log(task_id, "⚠️ 无法连接到你的 Edge（调试端口未开启）。")
-                _log(task_id, "   请先双击运行 open-edge.bat，它会把你的 Edge 重启一次以开启调试。")
-                _log(task_id, "   你的登录和扩展（卖家精灵/SIF）全部保留。之后保持窗口开着，再点开始采集即可。")
+                _log(task_id, "   请关闭这个程序窗口，重新运行 start.bat，它会自动开启调试的 Edge。")
                 raise RuntimeError(
-                    "Edge 调试端口未开启。请先运行 open-edge.bat，再回来点「开始采集」。"
+                    "Edge 调试端口未开启。请重新运行 start.bat（会自动重启 Edge 并开启调试）。"
                 ) from cdp_err
             else:
                 raise

@@ -86,22 +86,35 @@ REM Always regenerate .env to ensure correct variable names
 echo       Edge path: !EDGE_DIR!
 echo.
 
-REM ---------- 5. Check Edge debug port ----------
-echo [5/6] Checking Edge debug port 9222 ...
+REM ---------- 5. Start Edge with remote debugging ----------
+echo [5/6] Starting Edge with remote debugging port 9222 ...
 echo.
 
+REM If the debug port is already live, leave Edge alone (no restart).
+set "PORT_OK="
 powershell -NoProfile -Command "try { (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing -TimeoutSec 2) ^| Out-Null; exit 0 } catch { exit 1 }" > "%TEMP%\_amzchk" 2>&1
-if not errorlevel 1 (
-    echo       采集浏览器已就绪。/ Collector browser is ready.
+if not errorlevel 1 set "PORT_OK=1"
+
+if defined PORT_OK (
+    echo       Edge 已就绪，直接使用。/ Edge already running - reused.
 ) else (
-    echo       采集浏览器未启动。
-    echo.
-    echo   *** 请先运行 open-edge.bat 打开采集专用浏览器！***
-    echo   *** Please run open-edge.bat first to open the collector browser! ***
-    echo.
-    echo   open-edge.bat 在同一个文件夹里，双击即可。
-    echo   采集浏览器只需打开一次，之后保持开着就行。
-    echo.
+    echo       正在重启 Edge 以开启调试端口（登录和扩展都保留）...
+    echo       Restarting Edge to enable debugging (logins/extensions kept) ...
+    taskkill /f /im msedge.exe > "%TEMP%\_amzchk" 2>&1
+    ping -n 3 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
+    start "" "msedge.exe" "--remote-debugging-port=9222" "--no-first-run" "--no-default-browser-check"
+    for /l %%i in (1,1,15) do (
+        if not defined PORT_OK (
+            powershell -NoProfile -Command "try { (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing -TimeoutSec 2) ^| Out-Null; exit 0 } catch { exit 1 }" > "%TEMP%\_amzchk" 2>&1
+            if not errorlevel 1 set "PORT_OK=1"
+            if not defined PORT_OK ping -n 2 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
+        )
+    )
+    if defined PORT_OK (
+        echo       Edge 已就绪。/ Edge is ready.
+    ) else (
+        echo       [警告] 端口未开启，请关闭所有 Edge 窗口后重试。
+    )
 )
 echo.
 
