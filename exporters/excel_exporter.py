@@ -43,7 +43,11 @@ COLUMNS = [
     ("product_dimensions",       "商品尺寸(Product Dimensions)"),
     ("package_weight",           "包裹重量(Package Weight)"),
     ("package_dimensions",       "包裹尺寸(Package Dimensions)"),
-    ("main_image_url",           "主图URL(Main Image URL)"),
+    # Detail page content
+    ("bullet_points",            "卖点(Bullet Points)"),
+    ("product_description",      "产品描述(Description)"),
+    ("main_image_url",           "主图URL(Main Image)"),
+    ("all_image_urls",           "全部图片URL(All Images)"),
     ("product_url",              "产品URL(Product URL)"),
     ("page_number",              "页码(Page)"),
     ("collection_timestamp",     "采集时间(Timestamp)"),
@@ -88,14 +92,18 @@ def export(products: list, output_path: str) -> str:
     ws.row_dimensions[1].height = 22
 
     # Write data rows
+    # Columns that contain multi-line text and should wrap
+    WRAP_KEYS = {"bullet_points", "product_description"}
+
     for row_idx, product in enumerate(products, start=2):
         row_data = [str(product.get(key, "") or "") for key, _ in COLUMNS]
         ws.append(row_data)
         fill = ROW_FILL_A if row_idx % 2 == 0 else ROW_FILL_B
-        for col_idx in range(1, len(COLUMNS) + 1):
+        for col_idx, (key, _) in enumerate(COLUMNS, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.fill = fill
-            cell.alignment = Alignment(vertical="center", wrap_text=False)
+            wrap = key in WRAP_KEYS
+            cell.alignment = Alignment(vertical="top" if wrap else "center", wrap_text=wrap)
 
     # Auto-size columns based on content
     for col_idx, (_, header) in enumerate(COLUMNS, start=1):

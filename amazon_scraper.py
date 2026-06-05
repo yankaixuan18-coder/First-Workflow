@@ -162,6 +162,9 @@ def parse_product_detail(html: str, asin: str) -> dict:
         "rating": "",
         "review_count": "",
         "main_image_url": "",
+        "all_image_urls": "",
+        "bullet_points": "",
+        "product_description": "",
         "bsr": "",
         "main_category": "",
         "subcategory": "",
@@ -169,6 +172,10 @@ def parse_product_detail(html: str, asin: str) -> dict:
         "fulfillment": "",
         "seller_name": "",
         "variation_count": "",
+        "item_weight": "",
+        "product_dimensions": "",
+        "package_weight": "",
+        "package_dimensions": "",
     }
 
     # Title
@@ -209,7 +216,7 @@ def parse_product_detail(html: str, asin: str) -> dict:
     if review_el:
         result["review_count"] = review_el.get_text(strip=True)
 
-    # Main image
+    # Main image + all gallery images
     for img_sel in (
         "#landingImage",
         "#imgTagWrapperId img",
@@ -221,6 +228,70 @@ def parse_product_detail(html: str, asin: str) -> dict:
             src = img_el.get("src") or img_el.get("data-a-dynamic-image", "")
             if src and src.startswith("http"):
                 result["main_image_url"] = src
+                break
+
+    # All gallery images — extract from the JSON image data Amazon embeds in the page
+    import re as _re, json as _json
+    all_images = []
+    # Amazon stores image URLs in a JS variable: 'colorImages': { 'initial': [{...}] }
+    img_script_match = _re.search(
+        r"'colorImages'\s*:\s*\{\s*'initial'\s*:\s*(\[.*?\])\s*\}",
+        str(soup), _re.DOTALL
+    )
+    if img_script_match:
+        try:
+            img_list = _json.loads(img_script_match.group(1))
+            for item in img_list:
+                for key in ("hiRes", "large", "main"):
+                    url = item.get(key)
+                    if url and url.startswith("http") and url not in all_images:
+                        all_images.append(url)
+                        break
+        except Exception:
+            pass
+    # Fallback: thumbnail strip
+    if not all_images:
+        for thumb in soup.select("#altImages img, #imageBlock_feature_div img"):
+            src = thumb.get("src", "")
+            # Convert thumbnail URL to full-size by removing size suffix
+            src = _re.sub(r"\._[A-Z]{2}\d+_\.", ".", src)
+            if src.startswith("http") and src not in all_images:
+                all_images.append(src)
+    if all_images:
+        result["all_image_urls"] = " | ".join(all_images[:10])  # max 10 images
+    elif result["main_image_url"]:
+        result["all_image_urls"] = result["main_image_url"]
+
+    # Bullet points (卖点)
+    bullets = []
+    for bp_sel in (
+        "#feature-bullets ul li span.a-list-item",
+        "#feature-bullets .a-unordered-list li",
+        "#productFactsDesktopExpander .a-list-item",
+    ):
+        items = soup.select(bp_sel)
+        if items:
+            for li in items:
+                text = li.get_text(strip=True)
+                if text and len(text) > 5:
+                    bullets.append(text)
+            break
+    if bullets:
+        result["bullet_points"] = "\n".join(bullets)
+
+    # Product description (产品描述)
+    for desc_sel in (
+        "#productDescription p",
+        "#productDescription",
+        "#aplus p",
+        "#aplus .aplus-v2",
+        "[data-feature-name='bookDescription'] p",
+    ):
+        desc_el = soup.select_one(desc_sel)
+        if desc_el:
+            text = desc_el.get_text(" ", strip=True)
+            if len(text) > 20:
+                result["product_description"] = text[:2000]  # cap at 2000 chars
                 break
 
     # BSR and category — parse from detail bullets
@@ -298,6 +369,7 @@ def parse_product_detail(html: str, asin: str) -> dict:
             break
 
     return result
+
 
 
 def _extract_bsr(soup: BeautifulSoup) -> dict:
