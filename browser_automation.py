@@ -16,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-CDP_DEFAULT_URL = "http://localhost:9222"
+CDP_DEFAULT_URL = "http://127.0.0.1:9222"
 
 
 class BrowserController:
@@ -53,23 +53,72 @@ class BrowserController:
         else:
             self._launch_persistent()
 
+    @staticmethod
+    def _probe_cdp(http_url: str):
+        """
+        Hit the CDP /json/version endpoint to confirm the port is live and get
+        the real webSocketDebuggerUrl. Returns the ws URL (str) or None.
+        Connecting via the ws URL is more reliable than letting Playwright guess,
+        and it lets us distinguish "port not ready" from "wrong host".
+        """
+        import json as _json
+        import urllib.request as _req
+
+        try:
+            with _req.urlopen(http_url.rstrip("/") + "/json/version", timeout=2) as resp:
+                data = _json.loads(resp.read().decode("utf-8"))
+            ws = data.get("webSocketDebuggerUrl", "")
+            # Normalize the ws host to match the http host we probed (handles
+            # the localhost -> 127.0.0.1 case so the ws also uses 127.0.0.1).
+            if ws and "127.0.0.1" in http_url:
+                ws = ws.replace("localhost", "127.0.0.1")
+            return ws or http_url
+        except Exception:
+            return None
+
     def _launch_cdp(self):
         """Connect to an existing Edge/Chrome via CDP."""
         from playwright.sync_api import sync_playwright
 
+        # Build the list of candidate URLs to try. On Windows, "localhost" often
+        # resolves to IPv6 ::1 while Edge's debug port only listens on IPv4
+        # 127.0.0.1 — so always try 127.0.0.1 explicitly as well.
+        candidates = []
+        for url in (self.cdp_url, self.cdp_url.replace("localhost", "127.0.0.1")):
+            if url not in candidates:
+                candidates.append(url)
+
         logger.info(f"Connecting to existing Edge via CDP at {self.cdp_url} …")
         self._playwright = sync_playwright().start()
 
-        try:
-            self._browser = self._playwright.chromium.connect_over_cdp(self.cdp_url)
-        except Exception as exc:
+        last_exc = None
+        # Edge may still be opening the port right after launch; retry a few times.
+        for attempt in range(6):
+            for url in candidates:
+                ws = self._probe_cdp(url)
+                if not ws:
+                    continue
+                try:
+                    self._browser = self._playwright.chromium.connect_over_cdp(ws)
+                    if url != self.cdp_url:
+                        logger.info(f"Connected via {url} (localhost fell back to 127.0.0.1).")
+                    break
+                except Exception as exc:
+                    last_exc = exc
+            if self._browser:
+                break
+            time.sleep(1.0)
+
+        if not self._browser:
             self._playwright.stop()
             self._playwright = None
             raise RuntimeError(
                 f"Could not connect to Edge at {self.cdp_url}.\n"
-                "Make sure Edge was started with --remote-debugging-port=9222.\n"
-                "The start.bat script does this automatically — just run it again."
-            ) from exc
+                "Make sure Edge was started with --remote-debugging-port=9222 "
+                "and that NO other Edge window was already open (close all Edge "
+                "windows first, then run start.bat again).\n"
+                f"Last error: {last_exc}"
+            ) from last_exc
 
         # Reuse the first existing context (preserves all logins and extensions)
         contexts = self._browser.contexts
