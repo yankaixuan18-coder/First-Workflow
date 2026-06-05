@@ -400,7 +400,7 @@ def parse_product_detail(html: str, asin: str) -> dict:
         "#cr-dp-summarization-insights-content p,"
         ".cr-insight-text-wrapper p,"
         "[data-hook='cr-summarization-attributes-list'] ~ p,"
-        ".a-section.cr-lighthouse-terms + p,"
+        ".a-section.cr-lighthouse-terms + p"
     )
     # broader fallback: any <p> that is a child/descendant of the insights widget
     if not cs_summary_el:

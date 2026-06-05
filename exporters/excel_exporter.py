@@ -268,15 +268,20 @@ def _write_category_sheet(wb, products: list, category_map: dict, keyword: str):
     import re as _re
 
     def _bsr_num(p):
-        bsr = str(p.get("bsr", "") or "")
-        m = _re.search(r"[\d,]+", bsr.replace(",", ""))
-        try:
-            return int(_re.search(r"\d+", bsr.replace(",", "")).group())
-        except Exception:
-            return 999999
+        bsr = str(p.get("bsr", "") or "").replace(",", "")
+        m = _re.search(r"\d+", bsr)
+        return int(m.group()) if m else 999999
 
     # Build asin -> product lookup
     asin_map = {p.get("asin", ""): p for p in products}
+
+    # Catch any products the AI didn't assign to a category
+    assigned = {a for asins in category_map.values() for a in asins}
+    unassigned = [p.get("asin", "") for p in products
+                  if p.get("asin", "") and p.get("asin", "") not in assigned]
+    if unassigned:
+        category_map = dict(category_map)  # don't mutate caller's dict
+        category_map["未分类 Uncategorized"] = unassigned
 
     cs = wb.create_sheet(title="产品分类 Category")
     cs.column_dimensions["A"].width = 12   # ASIN
@@ -304,17 +309,19 @@ def _write_category_sheet(wb, products: list, category_map: dict, keyword: str):
 
     row = 2
     for cat_name, asins in category_map.items():
-        # Category label row
-        c = cs.cell(row=row, column=1, value=f"▶ {cat_name}  ({len(asins)} 款)")
+        # Sort products in this category by BSR ascending
+        cat_products = [asin_map[a] for a in asins if a in asin_map]
+        cat_products.sort(key=_bsr_num)
+        if not cat_products:
+            continue
+
+        # Category label row — count actual products found
+        c = cs.cell(row=row, column=1, value=f"▶ {cat_name}  ({len(cat_products)} 款)")
         c.font = cat_font
         c.fill = cat_fill
         cs.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(headers))
         cs.row_dimensions[row].height = 20
         row += 1
-
-        # Sort products in this category by BSR ascending
-        cat_products = [asin_map[a] for a in asins if a in asin_map]
-        cat_products.sort(key=_bsr_num)
 
         alt_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
         for i, p in enumerate(cat_products):

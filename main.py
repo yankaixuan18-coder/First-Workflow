@@ -362,6 +362,8 @@ def run_collection(task_id: str, params: dict):
                                  ("bullet_points", "卖点"),
                                  ("all_image_urls", "图片"),
                                  ("product_description", "描述"),
+                                 ("customers_say_summary", "买家评价"),
+                                 ("customers_say_topics", "评价标签"),
                              ]))
 
                         # Read SellerSprite extension overlay from the live page
