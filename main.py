@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-profit-v10"
+BUILD_VERSION = "2026-06-05-ai-v11"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -163,6 +163,11 @@ def run_collection(task_id: str, params: dict):
         "chrome_profile",
         os.environ.get("CHROME_PROFILE", config.DEFAULT_CHROME_PROFILE),
     )
+
+    ai_enabled: bool = bool(params.get("ai_enabled", False))
+    ai_provider: str = params.get("ai_provider", "anthropic")
+    ai_model: str = params.get("ai_model", "")
+    ai_api_key: str = params.get("ai_api_key", "")
 
     marketplace_url = config.MARKETPLACES.get(marketplace_key, "https://www.amazon.com")
     all_products: list = []
@@ -384,6 +389,25 @@ def run_collection(task_id: str, params: dict):
         all_products = all_products[:max_products]
         _log(task_id, f"采集完成 / Collection complete. 共 {len(all_products)} 个商品。")
 
+        # Optional AI evaluation of each product
+        if ai_enabled and ai_api_key and all_products:
+            from ai_evaluator import evaluate as ai_evaluate, PROVIDER_LABELS, DEFAULT_MODELS
+            model_used = ai_model or DEFAULT_MODELS.get(ai_provider, "")
+            _log(task_id, f"🤖 开始AI评价 / AI evaluation: "
+                          f"{PROVIDER_LABELS.get(ai_provider, ai_provider)} ({model_used})")
+            for idx, product in enumerate(all_products):
+                try:
+                    review = ai_evaluate(product, ai_provider, ai_api_key, ai_model)
+                    product["ai_evaluation"] = review
+                    preview = review.replace("\n", " ")[:30]
+                    _log(task_id, f"  AI评价 {idx+1}/{len(all_products)}: {preview}…")
+                except Exception as ai_err:
+                    product["ai_evaluation"] = f"[AI错误: {ai_err}]"
+                    _log(task_id, f"  AI评价 {idx+1} 失败: {ai_err}")
+            _log(task_id, "🤖 AI评价完成 / AI evaluation done.")
+        elif ai_enabled and not ai_api_key:
+            _log(task_id, "⚠️ 已勾选AI评价但未填写API Key，跳过。")
+
         # Export to Excel
         _log(task_id, "正在导出 Excel / Exporting to Excel …")
         output_path = generate_output_filename(keyword_or_url, config.OUTPUT_DIR)
@@ -454,6 +478,11 @@ def start():
             "chrome_profile",
             os.environ.get("CHROME_PROFILE", config.DEFAULT_CHROME_PROFILE),
         ),
+        # AI evaluation (optional)
+        "ai_enabled": bool(data.get("ai_enabled", False)),
+        "ai_provider": data.get("ai_provider", "anthropic"),
+        "ai_model": data.get("ai_model", ""),
+        "ai_api_key": data.get("ai_api_key", ""),
     }
 
     thread = threading.Thread(

@@ -182,6 +182,40 @@
       </span>
     </label>
 
+    <!-- AI evaluation -->
+    <label class="flex items-start gap-3 p-4 mt-3 rounded-xl bg-purple-50 border-2 border-purple-300 cursor-pointer hover:bg-purple-100">
+      <input id="aiEnabled" type="checkbox" class="h-5 w-5 mt-0.5 accent-purple-500 rounded" onchange="toggleAiBox()" />
+      <span>
+        <span class="font-semibold text-slate-700 text-sm">🤖 用 AI 自动生成选品评价</span>
+        <span class="block text-xs text-slate-500 mt-0.5">采集完成后，调用你选择的大模型对每个商品给出选品评价（是否值得做/优势/风险），写入 Excel 的「AI评价」列。需要你自己的 API Key，按用量计费。</span>
+      </span>
+    </label>
+    <div id="aiBox" class="hidden mt-3 p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">模型提供商 Provider</label>
+          <select id="aiProvider" onchange="onAiProvider()"
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500">
+            <option value="anthropic">Claude (Anthropic)</option>
+            <option value="openai">OpenAI GPT</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">模型名称 Model（可留空用默认）</label>
+          <input id="aiModel" type="text" placeholder="claude-sonnet-4-6"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-500 mb-1">API Key（仅本机使用，不会上传或保存）</label>
+        <input id="aiApiKey" type="password" placeholder="sk-..."
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500" />
+      </div>
+      <p class="text-xs text-amber-600">⚠️ 商品越多调用次数越多，请注意 API 费用。建议先用「测试」预设跑 1-3 个验证。</p>
+    </div>
+
     <!-- Chrome advanced settings -->
     <details class="mt-4 border border-slate-200 rounded-xl">
       <summary class="px-4 py-3 text-sm font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-50 flex items-center gap-2">

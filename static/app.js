@@ -58,6 +58,29 @@ function fillExample(text) {
 }
 
 // ---------------------------------------------------------------------------
+// AI evaluation options
+// ---------------------------------------------------------------------------
+
+const AI_DEFAULT_MODELS = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-4o-mini',
+  deepseek: 'deepseek-chat',
+  gemini: 'gemini-1.5-flash',
+};
+
+function toggleAiBox() {
+  const on = document.getElementById('aiEnabled').checked;
+  document.getElementById('aiBox').classList.toggle('hidden', !on);
+  if (on) onAiProvider();
+}
+
+function onAiProvider() {
+  const p = document.getElementById('aiProvider').value;
+  const modelInput = document.getElementById('aiModel');
+  modelInput.placeholder = AI_DEFAULT_MODELS[p] || '';
+}
+
+// ---------------------------------------------------------------------------
 // Step 2: presets & sliders
 // ---------------------------------------------------------------------------
 
@@ -202,6 +225,10 @@ async function startCollection() {
     manual_prepare: (document.getElementById('manualPrepare') || {}).checked || false,
     chrome_user_data_dir: document.getElementById('chromeDir').value.trim(),
     chrome_profile: document.getElementById('chromeProfile').value.trim(),
+    ai_enabled: document.getElementById('aiEnabled').checked,
+    ai_provider: document.getElementById('aiProvider').value,
+    ai_model: document.getElementById('aiModel').value.trim(),
+    ai_api_key: document.getElementById('aiApiKey').value.trim(),
   };
 
   // Reset UI

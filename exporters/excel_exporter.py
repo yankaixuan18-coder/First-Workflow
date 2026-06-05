@@ -29,6 +29,7 @@ G_BASIC   = "基本信息 Basic Info"
 G_COST    = "成本项 Costs"
 G_REVENUE = "收入项 Revenue"
 G_PROFIT  = "利润计算 Profit"
+G_AI      = "AI评价 AI Review"
 
 COLUMNS = [
     # ---------------- 基本信息 Basic Info ----------------
@@ -88,6 +89,9 @@ COLUMNS = [
     ("profit",                   "单件利润(Profit)",                "formula:profit",        G_PROFIT),
     ("profit_margin",            "利润率(Profit Margin)",           "formula:profit_margin", G_PROFIT),
     ("ss_gross_margin",          "毛利率-卖家精灵(SS Margin ref)",  "text",  G_PROFIT),
+
+    # ---------------- AI评价 AI Review ----------------
+    ("ai_evaluation",            "AI选品评价(AI Evaluation)",       "text",  G_AI),
 ]
 
 # Styling
@@ -99,6 +103,7 @@ GROUP_FILLS = {
     G_COST:    PatternFill(start_color="C0504D", end_color="C0504D", fill_type="solid"),
     G_REVENUE: PatternFill(start_color="4F8A4F", end_color="4F8A4F", fill_type="solid"),
     G_PROFIT:  PatternFill(start_color="E0A526", end_color="E0A526", fill_type="solid"),
+    G_AI:      PatternFill(start_color="6F42C1", end_color="6F42C1", fill_type="solid"),
 }
 ROW_FILL_A  = PatternFill(start_color="EBF3FB", end_color="EBF3FB", fill_type="solid")
 ROW_FILL_B  = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
@@ -108,7 +113,7 @@ MAX_COL_WIDTH = 50
 MIN_COL_WIDTH = 10
 MONEY_FMT = "#,##0.00"
 PCT_FMT = "0.0%"
-WRAP_KEYS = {"bullet_points", "product_description"}
+WRAP_KEYS = {"bullet_points", "product_description", "ai_evaluation"}
 
 
 def _parse_money(value) -> float | None:
