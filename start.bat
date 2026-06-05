@@ -71,10 +71,12 @@ echo.
 REM ---------- 4. Configuration ----------
 echo [4/6] Checking configuration ...
 set "EDGE_DIR=%LOCALAPPDATA%\Microsoft\Edge\User Data"
-REM Always regenerate .env to ensure correct underscore variable names
+REM Always regenerate .env to ensure correct variable names
 (
     echo CHROME_USER_DATA_DIR=!EDGE_DIR!
     echo CHROME_PROFILE=Default
+    echo EDGE_USE_CDP=true
+    echo EDGE_CDP_URL=http://localhost:9222
     echo.
     echo ANTHROPIC_API_KEY=
     echo OPENAI_API_KEY=
@@ -84,11 +86,34 @@ REM Always regenerate .env to ensure correct underscore variable names
 echo       Edge path: !EDGE_DIR!
 echo.
 
-REM ---------- 5. Reminder ----------
-echo [5/6] IMPORTANT: Close ALL Edge windows before collecting.
+REM ---------- 5. Launch Edge with remote debugging ----------
+echo [5/6] Starting Edge with remote debugging port 9222 ...
+echo.
+echo   Your existing Edge browser with all logins and extensions
+echo   (SellerSprite / SIF) will be used automatically.
+echo.
+echo   NOTE: If Edge is already open, close it first, then this
+echo   script will reopen it with debugging enabled.
 echo.
 
-REM ---------- 6. Launch ----------
+REM Kill any lingering Edge processes that don't have the debug port
+REM (silent — if nothing to kill, that is fine)
+taskkill /f /im msedge.exe > "%TEMP%\_amzchk" 2>&1
+
+REM Wait a moment for processes to fully exit
+ping -n 3 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
+
+REM Launch Edge with remote debugging enabled
+REM --user-data-dir is NOT set here so Edge uses its default profile automatically
+start "" "msedge.exe" "--remote-debugging-port=9222" "--no-first-run" "--no-default-browser-check"
+
+REM Wait for Edge to start and open the debug port
+ping -n 4 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
+
+echo       Edge started with remote debugging on port 9222.
+echo.
+
+REM ---------- 6. Launch Flask app ----------
 echo [6/6] Starting the app ...
 echo.
 echo   Local address:  http://localhost:5000

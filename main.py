@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-stealth-v6"
+BUILD_VERSION = "2026-06-05-cdp-v7"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -179,16 +179,40 @@ def run_collection(task_id: str, params: dict):
             _log(task_id, "⚠️ 详情页已关闭！将只采集搜索页基础数据，"
                           "无法获取卖家精灵数据/卖点/图片/描述/BSR。")
             _log(task_id, "   如需这些数据，请返回第2步开启「详情页」开关。")
-        _log(task_id, f"初始化浏览器 / Initializing browser …")
-        _log(task_id, f"Edge profile: {chrome_user_data_dir} [{chrome_profile}]")
+        # CDP mode: connect to the user's already-open Edge (started with --remote-debugging-port=9222)
+        # This preserves all logins, cookies, and extensions like 卖家精灵.
+        cdp_url = os.environ.get("EDGE_CDP_URL", "http://localhost:9222")
+        use_cdp = os.environ.get("EDGE_USE_CDP", "true").lower() not in ("0", "false", "no")
+
+        if use_cdp:
+            _log(task_id, f"浏览器模式 / Browser mode: 连接已有Edge (CDP @ {cdp_url})")
+            _log(task_id, "   ✅ 将使用您已登录的Edge浏览器，卖家精灵/SIF扩展保持激活。")
+        else:
+            _log(task_id, f"浏览器模式 / Browser mode: 启动新Edge窗口 (profile: {chrome_user_data_dir})")
 
         browser = BrowserController(
             chrome_user_data_dir=chrome_user_data_dir,
             chrome_profile=chrome_profile,
             headless=False,
+            cdp_url=cdp_url,
+            use_cdp=use_cdp,
         )
-        browser.launch()
-        _log(task_id, "浏览器启动成功 / Browser launched successfully.")
+        try:
+            browser.launch()
+        except RuntimeError as cdp_err:
+            if use_cdp and "Could not connect" in str(cdp_err):
+                _log(task_id, f"⚠️ 无法连接到Edge CDP: {cdp_err}")
+                _log(task_id, "   正在改用新建Edge窗口模式 (fallback) …")
+                browser = BrowserController(
+                    chrome_user_data_dir=chrome_user_data_dir,
+                    chrome_profile=chrome_profile,
+                    headless=False,
+                    use_cdp=False,
+                )
+                browser.launch()
+            else:
+                raise
+        _log(task_id, "浏览器连接成功 / Browser ready.")
 
         # Manual preparation pause: open a product page first so the user can
         # confirm the 卖家精灵 panel appears (and log in if needed), then click
