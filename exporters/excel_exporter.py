@@ -69,15 +69,24 @@ COLUMNS = [
     ("collection_timestamp",     "采集时间(Timestamp)",            "text",  G_BASIC),
 
     # ---------------- 成本项 Costs (per unit) ----------------
-    ("product_cost",             "采购成本(Product Cost)",          "money", G_COST),
-    ("freight_cost",             "头程运费(Freight)",               "money", G_COST),
-    ("ss_fba_fee",               "FBA配送费(FBA Fee)",              "money", G_COST),
-    ("referral_fee",             "平台佣金~15%(Referral Fee)",      "formula:referral_fee", G_COST),
-    ("storage_fee",              "仓储费(Storage Fee)",            "money", G_COST),
-    ("ad_cost",                  "广告费(Ad Cost)",                "money", G_COST),
-    ("return_cost",              "退货成本(Returns)",              "money", G_COST),
-    ("other_cost",               "其他成本(Other Cost)",           "money", G_COST),
-    ("total_cost",               "总成本(Total Cost)",             "formula:total_cost", G_COST),
+    ("product_cost",             "采购成本(Product Cost)",          "money",             G_COST),
+    ("product_cost_pct",         "采购占比%",                       "formula:pct:product_cost",  G_COST),
+    ("freight_cost",             "头程运费(Freight)",               "money",             G_COST),
+    ("freight_cost_pct",         "头程占比%",                       "formula:pct:freight_cost",  G_COST),
+    ("ss_fba_fee",               "FBA配送费(FBA Fee)",              "money",             G_COST),
+    ("ss_fba_fee_pct",           "FBA占比%",                        "formula:pct:ss_fba_fee",    G_COST),
+    ("referral_fee",             "平台佣金~15%(Referral Fee)",      "formula:referral_fee",      G_COST),
+    ("referral_fee_pct",         "佣金占比%",                       "formula:pct:referral_fee",  G_COST),
+    ("storage_fee",              "仓储费(Storage Fee)",            "money",             G_COST),
+    ("storage_fee_pct",          "仓储占比%",                       "formula:pct:storage_fee",   G_COST),
+    ("ad_cost",                  "广告费(Ad Cost)",                "money",             G_COST),
+    ("ad_cost_pct",              "广告占比%",                       "formula:pct:ad_cost",       G_COST),
+    ("return_cost",              "退货成本(Returns)",              "money",             G_COST),
+    ("return_cost_pct",          "退货占比%",                       "formula:pct:return_cost",   G_COST),
+    ("other_cost",               "其他成本(Other Cost)",           "money",             G_COST),
+    ("other_cost_pct",           "其他占比%",                       "formula:pct:other_cost",    G_COST),
+    ("total_cost",               "总成本(Total Cost)",             "formula:total_cost",        G_COST),
+    ("total_cost_pct",           "总成本占比%",                     "formula:pct:total_cost",    G_COST),
 
     # ---------------- 收入项 Revenue (per unit) ----------------
     ("price",                    "售价(Selling Price)",            "money", G_REVENUE),
@@ -139,10 +148,18 @@ def export(products: list, output_path: str) -> str:
 
     letters = _col_letters()
 
-    # Cost item keys (money columns in the cost group) for the SUM formula
-    cost_money_keys = [k for k, _, kind, grp in COLUMNS if grp == G_COST and kind == "money"]
-    cost_first = letters[cost_money_keys[0]]
-    cost_last = letters[cost_money_keys[-1]]
+    # Cost item keys that contribute real values (money + referral_fee formula),
+    # excluding pct columns and the total_cost itself.
+    cost_value_keys = [
+        k for k, _, kind, grp in COLUMNS
+        if grp == G_COST
+        and kind != "formula:total_cost"
+        and not kind.startswith("formula:pct")
+        and not k.endswith("_pct")
+    ]
+    # Still keep first/last for backward compat signature; actual sum built per-row
+    cost_first = letters[cost_value_keys[0]]
+    cost_last = letters[cost_value_keys[-1]]
 
     # ---------- Row 1: group bands ----------
     # Find contiguous runs of the same group and merge them.
@@ -184,8 +201,8 @@ def export(products: list, output_path: str) -> str:
                 cell.number_format = MONEY_FMT
             elif kind.startswith("formula:"):
                 name = kind.split(":", 1)[1]
-                cell.value = _formula(name, row_idx, letters, cost_first, cost_last)
-                if name == "profit_margin":
+                cell.value = _formula(name, row_idx, letters, cost_value_keys)
+                if name in ("profit_margin",) or name.startswith("pct:"):
                     cell.number_format = PCT_FMT
                 else:
                     cell.number_format = MONEY_FMT
@@ -214,26 +231,37 @@ def export(products: list, output_path: str) -> str:
     return output_path
 
 
-def _formula(name: str, row: int, letters: dict, cost_first: str, cost_last: str) -> str:
+def _formula(name: str, row: int, letters: dict, cost_value_keys: list) -> str:
     """Build the Excel formula string for a computed column on a given row."""
-    rev = f"{letters['total_revenue']}{row}"
-    cost = f"{letters['total_cost']}{row}"
+    rev    = f"{letters['total_revenue']}{row}"
+    cost   = f"{letters['total_cost']}{row}"
     profit = f"{letters['profit']}{row}"
-    price = f"{letters['price']}{row}"
+    price  = f"{letters['price']}{row}"
     other_rev = f"{letters['other_revenue']}{row}"
 
     if name == "referral_fee":
-        # Amazon referral fee defaults to 15% of selling price (category-dependent)
         return f"={price}*0.15"
+
     if name == "total_cost":
-        return f"=SUM({cost_first}{row}:{cost_last}{row})"
+        # Sum only the real cost cells (money + referral_fee), skip pct columns
+        parts = "+".join(f"{letters[k]}{row}" for k in cost_value_keys)
+        return f"={parts}"
+
     if name == "total_revenue":
         return f"=SUM({price},{other_rev})"
+
     if name == "profit":
         return f"={rev}-{cost}"
+
     if name == "profit_margin":
-        # Avoid #DIV/0! when revenue is blank/zero
         return f'=IF({rev}=0,"",{profit}/{rev})'
+
+    # pct:<cost_key> — percentage of selling price
+    if name.startswith("pct:"):
+        cost_key = name[4:]
+        cost_cell = f"{letters[cost_key]}{row}"
+        return f'=IF({price}=0,"",{cost_cell}/{price})'
+
     return ""
 
 
