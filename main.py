@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Bump this whenever collection logic changes so logs identify the running code.
+BUILD_VERSION = "2026-06-05-detail-v3"
+
 # -------------------------------------------------------------------------
 # In-memory task store
 # -------------------------------------------------------------------------
@@ -166,9 +169,10 @@ def run_collection(task_id: str, params: dict):
     try:
         with tasks_lock:
             log_path = tasks.get(task_id, {}).get("log_path", "")
+        _log(task_id, f"代码版本 / Build: {BUILD_VERSION}")
         _log(task_id, f"日志文件 / Log file: {log_path}")
         _log(task_id, f"采集设置 / Settings: 最多 {max_pages} 页 / {max_products} 个商品，"
-                      f"详情页={'开启 ON' if fetch_details else '关闭 OFF'}")
+                      f"详情页={'开启 ON' if fetch_details else '关闭 OFF'} (fetch_details={fetch_details!r})")
         if not fetch_details:
             _log(task_id, "⚠️ 详情页已关闭！将只采集搜索页基础数据，"
                           "无法获取卖家精灵数据/卖点/图片/描述/BSR。")
