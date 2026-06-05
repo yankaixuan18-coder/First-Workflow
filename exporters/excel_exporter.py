@@ -142,7 +142,8 @@ def _col_letters() -> dict:
     return {key: get_column_letter(i) for i, (key, *_rest) in enumerate(COLUMNS, start=1)}
 
 
-def export(products: list, output_path: str) -> str:
+def export(products: list, output_path: str,
+           market_summary: str = "", keyword: str = "") -> str:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     wb = Workbook()
@@ -231,6 +232,25 @@ def export(products: list, output_path: str) -> str:
 
     # Freeze the two header rows
     ws.freeze_panes = "A3"
+
+    # ---------- Optional: 选品结论 summary sheet (keyword-level AI analysis) ----------
+    if market_summary:
+        s = wb.create_sheet(title="选品结论 Conclusion", index=0)
+        s.column_dimensions["A"].width = 100
+        title = f"关键词「{keyword}」选品结论" if keyword else "选品结论"
+        c = s.cell(row=1, column=1, value=title)
+        c.font = Font(bold=True, color="FFFFFF", size=14)
+        c.fill = PatternFill(start_color="6F42C1", end_color="6F42C1", fill_type="solid")
+        c.alignment = Alignment(horizontal="left", vertical="center")
+        s.row_dimensions[1].height = 28
+        meta = f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  竞品数: {len(products)}"
+        s.cell(row=2, column=1, value=meta).font = Font(color="888888", size=10)
+        body = s.cell(row=4, column=1, value=market_summary)
+        body.alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+        body.font = Font(size=11)
+        # Tall row so the wrapped text is visible
+        line_est = market_summary.count("\n") + max(1, len(market_summary) // 50)
+        s.row_dimensions[4].height = min(600, max(120, line_est * 16))
 
     wb.save(output_path)
     return output_path

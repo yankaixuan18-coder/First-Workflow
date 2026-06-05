@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-pct2-v14"
+BUILD_VERSION = "2026-06-05-market-v15"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -392,29 +392,51 @@ def run_collection(task_id: str, params: dict):
         all_products = all_products[:max_products]
         _log(task_id, f"采集完成 / Collection complete. 共 {len(all_products)} 个商品。")
 
-        # Optional AI evaluation of each product
+        # Optional AI analysis
+        market_summary = ""
         if ai_enabled and ai_api_key and all_products:
-            from ai_evaluator import evaluate as ai_evaluate, PROVIDER_LABELS, DEFAULT_MODELS
+            from ai_evaluator import (
+                evaluate as ai_evaluate,
+                evaluate_market as ai_evaluate_market,
+                PROVIDER_LABELS, DEFAULT_MODELS,
+            )
             model_used = ai_model or DEFAULT_MODELS.get(ai_provider, "")
-            _log(task_id, f"🤖 开始AI评价 / AI evaluation: "
-                          f"{PROVIDER_LABELS.get(ai_provider, ai_provider)} ({model_used})")
+            label = PROVIDER_LABELS.get(ai_provider, ai_provider)
+
+            # 1) Per-product evaluation (single link → product-level review)
+            _log(task_id, f"🤖 开始单品AI评价 / Per-product AI: {label} ({model_used})")
             for idx, product in enumerate(all_products):
                 try:
                     review = ai_evaluate(product, ai_provider, ai_api_key, ai_model)
                     product["ai_evaluation"] = review
                     preview = review.replace("\n", " ")[:30]
-                    _log(task_id, f"  AI评价 {idx+1}/{len(all_products)}: {preview}…")
+                    _log(task_id, f"  单品评价 {idx+1}/{len(all_products)}: {preview}…")
                 except Exception as ai_err:
                     product["ai_evaluation"] = f"[AI错误: {ai_err}]"
-                    _log(task_id, f"  AI评价 {idx+1} 失败: {ai_err}")
-            _log(task_id, "🤖 AI评价完成 / AI evaluation done.")
+                    _log(task_id, f"  单品评价 {idx+1} 失败: {ai_err}")
+
+            # 2) Keyword-level market analysis (whole dataset → sourcing conclusion)
+            _log(task_id, f"🤖 开始关键词市场分析 / Market analysis ({len(all_products)} 个竞品) …")
+            try:
+                market_summary = ai_evaluate_market(
+                    all_products, keyword_or_url, ai_provider, ai_api_key, ai_model
+                )
+                _log(task_id, "🤖 市场分析完成 / Market analysis done（见Excel「选品结论」工作表）。")
+                _log(task_id, "── 选品结论 / Conclusion ──")
+                for ln in str(market_summary).splitlines():
+                    if ln.strip():
+                        _log(task_id, "  " + ln.strip())
+            except Exception as mkt_err:
+                _log(task_id, f"市场分析失败 / Market analysis error: {mkt_err}")
+            _log(task_id, "🤖 AI分析完成 / AI analysis done.")
         elif ai_enabled and not ai_api_key:
             _log(task_id, "⚠️ 已勾选AI评价但未填写API Key，跳过。")
 
         # Export to Excel
         _log(task_id, "正在导出 Excel / Exporting to Excel …")
         output_path = generate_output_filename(keyword_or_url, config.OUTPUT_DIR)
-        export_excel(all_products, output_path)
+        export_excel(all_products, output_path,
+                     market_summary=market_summary, keyword=keyword_or_url)
         _log(task_id, f"Excel 已保存 / Excel saved: {os.path.basename(output_path)}")
 
         _finish(task_id, output_path, all_products)
