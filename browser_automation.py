@@ -206,21 +206,40 @@ class BrowserController:
         """
         Incrementally scroll to the bottom of the page with random delays
         to trigger lazy-loaded content (images, extension overlays, etc.).
+
+        Bounded by a max iteration count and a deadline so it can never hang,
+        even if the page keeps growing (infinite scroll) or innerHeight is 0.
         """
         if self._page is None:
             return
-        total_height = self._page.evaluate("document.body.scrollHeight")
-        viewport_height = self._page.evaluate("window.innerHeight")
+        try:
+            total_height = self._page.evaluate("document.body.scrollHeight") or 0
+            viewport_height = self._page.evaluate("window.innerHeight") or 0
+        except Exception as exc:
+            logger.warning(f"scroll_to_bottom: could not read page metrics: {exc}")
+            return
+
+        # Step floor: never 0 (which would loop forever) — fall back to 600px.
+        step = max(int(viewport_height // 2), 600)
         current_position = 0
-        step = viewport_height // 2
+        deadline = time.time() + 20.0  # hard cap so this never blocks collection
 
-        while current_position < total_height:
+        for _ in range(40):  # at most 40 scroll steps
+            if current_position >= total_height or time.time() > deadline:
+                break
             current_position = min(current_position + step, total_height)
-            self._page.evaluate(f"window.scrollTo(0, {current_position})")
-            time.sleep(random.uniform(0.2, 0.5))
-            total_height = self._page.evaluate("document.body.scrollHeight")
+            try:
+                self._page.evaluate(f"window.scrollTo(0, {current_position})")
+                time.sleep(random.uniform(0.2, 0.5))
+                total_height = self._page.evaluate("document.body.scrollHeight") or total_height
+            except Exception as exc:
+                logger.warning(f"scroll_to_bottom: stopping early: {exc}")
+                break
 
-        self._page.evaluate("window.scrollTo(0, 0)")
+        try:
+            self._page.evaluate("window.scrollTo(0, 0)")
+        except Exception:
+            pass
         time.sleep(random.uniform(0.3, 0.6))
 
     def get_page_html(self) -> str:

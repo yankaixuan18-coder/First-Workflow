@@ -304,8 +304,10 @@ def run_collection(task_id: str, params: dict):
                 _log(task_id, f"  导航警告 / Navigation warning: {nav_err}")
                 # Continue anyway — the page may still be parseable
 
+            _log(task_id, "  页面已加载，正在滚动加载内容 / Page loaded, scrolling …")
             browser.scroll_to_bottom()
             html = browser.get_page_html()
+            _log(task_id, f"  已获取页面HTML ({len(html)} 字符)，开始解析 / Got HTML, parsing …")
 
             page_products = parse_search_results(html, page_url, page_num)
             _log(task_id, f"  解析到 {len(page_products)} 个商品 / Parsed {len(page_products)} products")
