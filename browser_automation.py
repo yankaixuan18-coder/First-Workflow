@@ -114,7 +114,7 @@ class BrowserController:
             self._playwright = None
             raise RuntimeError(
                 f"Could not connect to Edge at {self.cdp_url}.\n"
-                "Run open-edge.bat first to open the tool's dedicated browser window."
+                "请重新运行 start.bat（它会自动打开采集浏览器）。"
             ) from last_exc
 
         # Reuse the first existing context (preserves all logins and extensions)

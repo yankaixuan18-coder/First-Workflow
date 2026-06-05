@@ -86,35 +86,54 @@ REM Always regenerate .env to ensure correct variable names
 echo       Edge path: !EDGE_DIR!
 echo.
 
-REM ---------- 5. Start Edge with remote debugging ----------
-echo [5/6] Starting Edge with remote debugging port 9222 ...
+REM ---------- 5. Start tool browser (copy of your logged-in Edge) ----------
+echo [5/6] Starting Edge for the collector ...
 echo.
 
-REM If the debug port is already live, leave Edge alone (no restart).
+set "TOOL_PROFILE=%~dp0browser-profile"
+set "MAIN_PROFILE=%LOCALAPPDATA%\Microsoft\Edge\User Data"
+
+REM If the debug port is already live, the tool browser is open - reuse it.
 set "PORT_OK="
 powershell -NoProfile -Command "try { (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing -TimeoutSec 2) ^| Out-Null; exit 0 } catch { exit 1 }" > "%TEMP%\_amzchk" 2>&1
 if not errorlevel 1 set "PORT_OK=1"
 
-if defined PORT_OK (
-    echo       Edge 已就绪，直接使用。/ Edge already running - reused.
-) else (
-    echo       正在重启 Edge 以开启调试端口（登录和扩展都保留）...
-    echo       Restarting Edge to enable debugging (logins/extensions kept) ...
+if defined PORT_OK goto :BROWSER_READY
+
+REM First time only: copy your CURRENT logged-in Edge profile (logins +
+REM SellerSprite/SIF extensions) into the tool profile, so you never log in
+REM again. The copy needs Edge closed for a moment to avoid locked files.
+if not exist "!TOOL_PROFILE!\Default\Preferences" (
+    echo       首次使用：正在复制你当前已登录的 Edge（登录和扩展都带过来，无需重新登录）...
+    echo       First run: copying your logged-in Edge profile ^(logins + extensions^) ...
+    echo       为了完整复制，需要先关闭 Edge 几秒钟。
     taskkill /f /im msedge.exe > "%TEMP%\_amzchk" 2>&1
     ping -n 3 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
-    start "" "msedge.exe" "--remote-debugging-port=9222" "--no-first-run" "--no-default-browser-check"
-    for /l %%i in (1,1,15) do (
-        if not defined PORT_OK (
-            powershell -NoProfile -Command "try { (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing -TimeoutSec 2) ^| Out-Null; exit 0 } catch { exit 1 }" > "%TEMP%\_amzchk" 2>&1
-            if not errorlevel 1 set "PORT_OK=1"
-            if not defined PORT_OK ping -n 2 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
-        )
+    if not exist "!TOOL_PROFILE!" mkdir "!TOOL_PROFILE!"
+    REM Copy profile, skipping large/locked cache folders for speed.
+    robocopy "!MAIN_PROFILE!" "!TOOL_PROFILE!" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP ^
+        /XD "Cache" "Code Cache" "GPUCache" "Service Worker" "DawnCache" "GrShaderCache" "ShaderCache" ^
+        /XF "lockfile" "SingletonLock" "SingletonCookie" "SingletonSocket" > "%TEMP%\_amzchk" 2>&1
+    echo       复制完成。你现在可以重新打开你平时用的 Edge，不受影响。
+    echo.
+)
+
+echo       正在打开采集浏览器（独立窗口，和你的主 Edge 并行，互不干扰）...
+start "" "msedge.exe" "--user-data-dir=!TOOL_PROFILE!" "--remote-debugging-port=9222" "--no-first-run" "--no-default-browser-check" "https://www.amazon.com"
+
+for /l %%i in (1,1,15) do (
+    if not defined PORT_OK (
+        powershell -NoProfile -Command "try { (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing -TimeoutSec 2) ^| Out-Null; exit 0 } catch { exit 1 }" > "%TEMP%\_amzchk" 2>&1
+        if not errorlevel 1 set "PORT_OK=1"
+        if not defined PORT_OK ping -n 2 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
     )
-    if defined PORT_OK (
-        echo       Edge 已就绪。/ Edge is ready.
-    ) else (
-        echo       [警告] 端口未开启，请关闭所有 Edge 窗口后重试。
-    )
+)
+
+:BROWSER_READY
+if defined PORT_OK (
+    echo       采集浏览器已就绪。/ Collector browser ready.
+) else (
+    echo       [警告] 浏览器端口未开启，请关闭所有 Edge 窗口后重试。
 )
 echo.
 
