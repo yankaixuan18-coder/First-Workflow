@@ -80,6 +80,17 @@ function onAiProvider() {
   modelInput.placeholder = AI_DEFAULT_MODELS[p] || '';
 }
 
+function toggleCatBox() {
+  const on = document.getElementById('catEnabled').checked;
+  document.getElementById('catBox').classList.toggle('hidden', !on);
+  if (on) onCatProvider();
+}
+
+function onCatProvider() {
+  const p = document.getElementById('catProvider').value;
+  document.getElementById('catModel').placeholder = AI_DEFAULT_MODELS[p] || '';
+}
+
 // ---------------------------------------------------------------------------
 // Step 2: presets & sliders
 // ---------------------------------------------------------------------------
@@ -229,6 +240,10 @@ async function startCollection() {
     ai_provider: document.getElementById('aiProvider').value,
     ai_model: document.getElementById('aiModel').value.trim(),
     ai_api_key: document.getElementById('aiApiKey').value.trim(),
+    cat_enabled: document.getElementById('catEnabled').checked,
+    cat_provider: document.getElementById('catProvider').value,
+    cat_model: document.getElementById('catModel').value.trim(),
+    cat_api_key: document.getElementById('catApiKey').value.trim(),
   };
 
   // Reset UI

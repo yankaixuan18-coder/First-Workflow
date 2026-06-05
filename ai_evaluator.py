@@ -172,6 +172,57 @@ def evaluate_market(products: list, keyword: str, provider: str, api_key: str,
                 max_tokens=1200, timeout=timeout)
 
 
+_CATEGORIZE_SYSTEM_PROMPT = (
+    "你是一位亚马逊选品专家。给定一批产品标题，请将它们归类到合适的产品小类中。\n"
+    "要求：\n"
+    "1. 根据产品标题的实际差异，划分出2-8个有意义的小类（如：大号保温袋/背包式保温袋/迷你保温袋/专业外卖袋 等）\n"
+    "2. 每个产品必须分配到一个类别\n"
+    "3. 严格按照以下JSON格式输出，不要有任何额外文字：\n"
+    '{"categories": [{"name": "类别名称", "asins": ["B0XXXXX", "B0YYYYY"]}, ...]}'
+)
+
+
+def categorize_products(products: list, provider: str, api_key: str,
+                        model: str = "", timeout: int = 120) -> dict:
+    """
+    Use AI to group products by category based on their titles.
+    Returns a dict: {category_name: [asin, ...], ...}
+    On failure returns {"未分类": [all asins]}.
+    """
+    if not products:
+        return {}
+
+    lines = []
+    for p in products:
+        asin = p.get("asin", "")
+        title = str(p.get("title", ""))[:120]
+        lines.append(f"{asin}: {title}")
+
+    prompt = "请对以下产品进行分类：\n" + "\n".join(lines)
+    raw = _run(provider, api_key, model, _CATEGORIZE_SYSTEM_PROMPT,
+               prompt, max_tokens=1000, timeout=timeout)
+
+    import re as _re
+    # Extract JSON from response (model may wrap it in markdown code blocks)
+    m = _re.search(r'\{.*"categories".*\}', raw, _re.DOTALL)
+    if not m:
+        logger.warning(f"Categorize: unexpected response: {raw[:200]}")
+        return {"未分类": [p.get("asin", "") for p in products]}
+
+    try:
+        data = json.loads(m.group(0))
+        result = {}
+        for cat in data.get("categories", []):
+            name = str(cat.get("name", "未分类")).strip()
+            asins = [str(a).strip() for a in cat.get("asins", []) if a]
+            if name and asins:
+                result[name] = asins
+        return result if result else {"未分类": [p.get("asin", "") for p in products]}
+    except Exception as e:
+        logger.warning(f"Categorize JSON parse error: {e}")
+        return {"未分类": [p.get("asin", "") for p in products]}
+
+
 def _post(url: str, headers: dict, payload: dict, timeout: int) -> dict:
     import http.client
     import ssl

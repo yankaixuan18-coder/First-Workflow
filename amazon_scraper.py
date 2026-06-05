@@ -184,6 +184,8 @@ def parse_product_detail(html: str, asin: str) -> dict:
         "product_dimensions": "",
         "package_weight": "",
         "package_dimensions": "",
+        "customers_say_summary": "",
+        "customers_say_topics": "",
     }
 
     # Title
@@ -391,6 +393,49 @@ def parse_product_detail(html: str, asin: str) -> dict:
         if val:
             result["package_weight"] = val
             break
+
+    # "Customers say" — AI-generated summary + topic tags
+    cs_summary_el = soup.select_one(
+        "[data-hook='cr-insights-widget-aspects'] p,"
+        "#cr-dp-summarization-insights-content p,"
+        ".cr-insight-text-wrapper p,"
+        "[data-hook='cr-summarization-attributes-list'] ~ p,"
+        ".a-section.cr-lighthouse-terms + p,"
+    )
+    # broader fallback: any <p> that is a child/descendant of the insights widget
+    if not cs_summary_el:
+        for sel in (
+            "[data-hook='cr-insights-widget-aspects']",
+            "#cr-dp-summarization-insights-content",
+            ".cr-lighthouse-terms",
+        ):
+            widget = soup.select_one(sel)
+            if widget:
+                p = widget.find_parent("div", attrs={"class": True})
+                if p:
+                    cs_summary_el = p.find("p")
+                break
+    if cs_summary_el:
+        result["customers_say_summary"] = cs_summary_el.get_text(" ", strip=True)
+
+    # Topic tags: "Comfort (61)", "Quality (47)" …
+    topics = []
+    for tag_sel in (
+        "[data-hook='cr-summarization-attribute'] span",
+        ".cr-lighthouse-term",
+        "[data-hook='cr-insights-widget-aspects'] .a-color-base",
+    ):
+        els = soup.select(tag_sel)
+        if els:
+            seen = set()
+            for el in els:
+                t = el.get_text(strip=True)
+                if t and t not in seen:
+                    seen.add(t)
+                    topics.append(t)
+            break
+    if topics:
+        result["customers_say_topics"] = " | ".join(topics[:15])
 
     return result
 

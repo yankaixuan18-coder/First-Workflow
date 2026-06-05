@@ -62,6 +62,8 @@ COLUMNS = [
     ("ss_recommend_traffic",     "搜索推荐词(Recommend Traffic)",   "text",  G_BASIC),
     ("bullet_points",            "卖点(Bullet Points)",            "text",  G_BASIC),
     ("product_description",      "产品描述(Description)",          "text",  G_BASIC),
+    ("customers_say_summary",    "买家综合评价(Customers Say)",     "text",  G_BASIC),
+    ("customers_say_topics",     "评价话题标签(Review Topics)",     "text",  G_BASIC),
     ("main_image_url",           "主图URL(Main Image)",            "text",  G_BASIC),
     ("all_image_urls",           "全部图片URL(All Images)",         "text",  G_BASIC),
     ("product_url",              "产品URL(Product URL)",           "text",  G_BASIC),
@@ -125,7 +127,7 @@ MAX_COL_WIDTH = 50
 MIN_COL_WIDTH = 10
 MONEY_FMT = "#,##0.00"
 PCT_FMT = "0.0%"
-WRAP_KEYS = {"bullet_points", "product_description", "ai_evaluation"}
+WRAP_KEYS = {"bullet_points", "product_description", "ai_evaluation", "customers_say_summary"}
 
 
 def _parse_money(value) -> float | None:
@@ -143,7 +145,8 @@ def _col_letters() -> dict:
 
 
 def export(products: list, output_path: str,
-           market_summary: str = "", keyword: str = "") -> str:
+           market_summary: str = "", keyword: str = "",
+           category_map: dict = None) -> str:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     wb = Workbook()
@@ -252,8 +255,91 @@ def export(products: list, output_path: str,
         line_est = market_summary.count("\n") + max(1, len(market_summary) // 50)
         s.row_dimensions[4].height = min(600, max(120, line_est * 16))
 
+    # ---------- Optional: 产品分类 category sheet ----------
+    if category_map:
+        _write_category_sheet(wb, products, category_map, keyword)
+
     wb.save(output_path)
     return output_path
+
+
+def _write_category_sheet(wb, products: list, category_map: dict, keyword: str):
+    """Add a '产品分类 Category' sheet with products grouped and sorted by BSR."""
+    import re as _re
+
+    def _bsr_num(p):
+        bsr = str(p.get("bsr", "") or "")
+        m = _re.search(r"[\d,]+", bsr.replace(",", ""))
+        try:
+            return int(_re.search(r"\d+", bsr.replace(",", "")).group())
+        except Exception:
+            return 999999
+
+    # Build asin -> product lookup
+    asin_map = {p.get("asin", ""): p for p in products}
+
+    cs = wb.create_sheet(title="产品分类 Category")
+    cs.column_dimensions["A"].width = 12   # ASIN
+    cs.column_dimensions["B"].width = 60   # Title
+    cs.column_dimensions["C"].width = 12   # BSR
+    cs.column_dimensions["D"].width = 15   # Price
+    cs.column_dimensions["E"].width = 18   # Monthly Sales
+    cs.column_dimensions["F"].width = 12   # Rating
+    cs.column_dimensions["G"].width = 12   # Reviews
+    cs.column_dimensions["H"].width = 15   # Seller
+
+    # Header row
+    hdr_fill = PatternFill(start_color="2E4057", end_color="2E4057", fill_type="solid")
+    hdr_font = Font(bold=True, color="FFFFFF", size=11)
+    headers = ["ASIN", "产品标题", "BSR排名", "售价", "月销量(父体)", "评分", "评论数", "卖家"]
+    for ci, h in enumerate(headers, 1):
+        c = cs.cell(row=1, column=ci, value=h)
+        c.font = hdr_font
+        c.fill = hdr_fill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+    cs.row_dimensions[1].height = 22
+
+    cat_fill = PatternFill(start_color="E8EAF6", end_color="E8EAF6", fill_type="solid")
+    cat_font = Font(bold=True, size=11, color="3949AB")
+
+    row = 2
+    for cat_name, asins in category_map.items():
+        # Category label row
+        c = cs.cell(row=row, column=1, value=f"▶ {cat_name}  ({len(asins)} 款)")
+        c.font = cat_font
+        c.fill = cat_fill
+        cs.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(headers))
+        cs.row_dimensions[row].height = 20
+        row += 1
+
+        # Sort products in this category by BSR ascending
+        cat_products = [asin_map[a] for a in asins if a in asin_map]
+        cat_products.sort(key=_bsr_num)
+
+        alt_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
+        for i, p in enumerate(cat_products):
+            fill = alt_fill if i % 2 == 1 else None
+            vals = [
+                p.get("asin", ""),
+                str(p.get("title", ""))[:100],
+                p.get("bsr", ""),
+                p.get("price", ""),
+                p.get("ss_monthly_sales_parent", ""),
+                p.get("rating", ""),
+                p.get("review_count", ""),
+                p.get("seller_name", ""),
+            ]
+            for ci, v in enumerate(vals, 1):
+                cell = cs.cell(row=row, column=ci, value=v)
+                if fill:
+                    cell.fill = fill
+                if ci == 2:
+                    cell.alignment = Alignment(wrap_text=False)
+            row += 1
+
+        row += 1  # blank separator between categories
+
+    cs.freeze_panes = "A2"
 
 
 def _formula(name: str, row: int, letters: dict, cost_value_keys: list) -> str:

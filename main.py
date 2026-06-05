@@ -197,6 +197,11 @@ def run_collection(task_id: str, params: dict):
     ai_model: str = params.get("ai_model", "")
     ai_api_key: str = params.get("ai_api_key", "")
 
+    cat_enabled: bool = bool(params.get("cat_enabled", False))
+    cat_provider: str = params.get("cat_provider", "deepseek")
+    cat_model: str = params.get("cat_model", "")
+    cat_api_key: str = params.get("cat_api_key", "")
+
     marketplace_url = config.MARKETPLACES.get(marketplace_key, "https://www.amazon.com")
     all_products: list = []
     browser: BrowserController | None = None
@@ -469,11 +474,35 @@ def run_collection(task_id: str, params: dict):
         elif ai_enabled and not ai_api_key:
             _log(task_id, "⚠️ 已勾选AI评价但未填写API Key，跳过。")
 
+        # AI product categorization (independent model config)
+        category_map = None
+        if cat_enabled and cat_api_key and all_products:
+            from ai_evaluator import (
+                categorize_products as ai_categorize,
+                PROVIDER_LABELS, DEFAULT_MODELS,
+            )
+            cat_model_used = cat_model or DEFAULT_MODELS.get(cat_provider, "")
+            cat_label = PROVIDER_LABELS.get(cat_provider, cat_provider)
+            _log(task_id, f"🗂️ 开始AI产品分类 / AI categorization: {cat_label} ({cat_model_used}) …")
+            try:
+                category_map = ai_categorize(
+                    all_products, cat_provider, cat_api_key, cat_model
+                )
+                cats_summary = " | ".join(
+                    f"{k}({len(v)}款)" for k, v in category_map.items()
+                )
+                _log(task_id, f"🗂️ 分类完成 / Categorized: {cats_summary}")
+            except Exception as cat_err:
+                _log(task_id, f"⚠️ 产品分类失败: {cat_err}")
+        elif cat_enabled and not cat_api_key:
+            _log(task_id, "⚠️ 已勾选产品分类但未填写API Key，跳过。")
+
         # Export to Excel
         _log(task_id, "正在导出 Excel / Exporting to Excel …")
         output_path = generate_output_filename(keyword_or_url, config.OUTPUT_DIR)
         export_excel(all_products, output_path,
-                     market_summary=market_summary, keyword=keyword_or_url)
+                     market_summary=market_summary, keyword=keyword_or_url,
+                     category_map=category_map)
         _log(task_id, f"Excel 已保存 / Excel saved: {os.path.basename(output_path)}")
 
         _finish(task_id, output_path, all_products)
@@ -545,6 +574,11 @@ def start():
         "ai_provider": data.get("ai_provider", "anthropic"),
         "ai_model": data.get("ai_model", ""),
         "ai_api_key": data.get("ai_api_key", ""),
+        # AI categorization (independent model)
+        "cat_enabled": bool(data.get("cat_enabled", False)),
+        "cat_provider": data.get("cat_provider", "deepseek"),
+        "cat_model": data.get("cat_model", ""),
+        "cat_api_key": data.get("cat_api_key", ""),
     }
 
     thread = threading.Thread(
