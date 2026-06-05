@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-cdp-v8"
+BUILD_VERSION = "2026-06-05-ssfull-v9"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -332,13 +332,36 @@ def run_collection(task_id: str, params: dict):
                             for key, val in ss_data.items():
                                 if val:
                                     product[key] = val
-                            _log(task_id, "    插件字段 / Plugin fields: "
+                            _log(task_id, "    插件字段1 / Plugin fields: "
                                  + _field_summary(product, [
-                                     ("ss_monthly_sales_parent", "月销量"),
+                                     ("ss_monthly_sales_parent", "月销父"),
+                                     ("ss_monthly_sales_child", "月销子"),
                                      ("ss_monthly_revenue", "销售额"),
                                      ("ss_fba_fee", "FBA费"),
                                      ("ss_gross_margin", "毛利率"),
-                                     ("ss_total_traffic", "流量"),
+                                     ("variation_count", "变体数"),
+                                     ("ss_shipping_days", "配送时长"),
+                                 ]))
+                            _log(task_id, "    插件字段2 / Plugin fields: "
+                                 + _field_summary(product, [
+                                     ("seller_name", "卖家"),
+                                     ("sif_seller_count", "卖家数"),
+                                     ("bsr", "BSR"),
+                                     ("main_category", "大类"),
+                                     ("subcategory", "小类"),
+                                     ("listing_date", "上架"),
+                                 ]))
+                            _log(task_id, "    插件字段3 / Plugin fields: "
+                                 + _field_summary(product, [
+                                     ("ss_style", "款式"),
+                                     ("item_weight", "商品重量"),
+                                     ("product_dimensions", "商品尺寸"),
+                                     ("package_weight", "包装重量"),
+                                     ("package_dimensions", "包装尺寸"),
+                                     ("ss_total_traffic", "全部流量"),
+                                     ("ss_organic_traffic", "自然词"),
+                                     ("ss_ad_traffic", "广告词"),
+                                     ("ss_recommend_traffic", "推荐词"),
                                  ]))
                         browser.wait(config.REQUEST_DELAY_MIN, config.REQUEST_DELAY_MAX)
                     except Exception as detail_err:

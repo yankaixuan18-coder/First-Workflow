@@ -38,7 +38,9 @@ COLUMNS = [
     ("ss_organic_traffic",       "自然搜索词(Organic Traffic)"),
     ("ss_ad_traffic",            "广告流量(Ad Traffic)"),
     ("ss_recommend_traffic",     "搜索推荐(Recommend Traffic)"),
-    # Physical product specs (from Amazon detail page)
+    ("ss_style",                 "款式(Style)"),
+    ("ss_rating",                "评分_评分数(Rating/Count)"),
+    # Physical product specs (from SellerSprite panel / Amazon detail page)
     ("item_weight",              "商品重量(Item Weight)"),
     ("product_dimensions",       "商品尺寸(Product Dimensions)"),
     ("package_weight",           "包裹重量(Package Weight)"),
