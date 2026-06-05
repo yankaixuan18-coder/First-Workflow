@@ -226,7 +226,8 @@ def run_collection(task_id: str, params: dict):
             _log(task_id, f"浏览器模式 / Browser mode: 连接已有Edge (CDP @ {cdp_url})")
             _log(task_id, "   ✅ 将使用您已登录的Edge浏览器，卖家精灵/SIF扩展保持激活。")
         else:
-            _log(task_id, f"浏览器模式 / Browser mode: 启动新Edge窗口 (profile: {chrome_user_data_dir})")
+            _log(task_id, "浏览器模式 / Browser mode: 启动采集浏览器（你已登录的Edge副本）")
+            _log(task_id, "   ✅ 使用 start.bat 复制好的登录状态与卖家精灵/SIF扩展，和你的主Edge并行。")
 
         browser = BrowserController(
             chrome_user_data_dir=chrome_user_data_dir,

@@ -132,9 +132,11 @@ class BrowserController:
 
     def _launch_persistent(self):
         """
-        Fallback: launch Edge with a dedicated profile stored inside the project
-        directory. This runs alongside the user's main Edge (different user-data-dir)
-        so there is never a lockfile conflict, regardless of what else is open.
+        Launch Edge with the dedicated profile at ./browser-profile (a copy of the
+        user's logged-in Edge made by start.bat — keeps logins + SellerSprite/SIF).
+        Playwright drives it directly (no debug port needed, so it is immune to the
+        Edge 136+ restriction that blocks remote debugging on the default profile),
+        and it runs alongside the user's main Edge with no lockfile conflict.
         """
         from playwright.sync_api import sync_playwright
 

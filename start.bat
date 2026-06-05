@@ -75,7 +75,7 @@ REM Always regenerate .env to ensure correct variable names
 (
     echo CHROME_USER_DATA_DIR=!EDGE_DIR!
     echo CHROME_PROFILE=Default
-    echo EDGE_USE_CDP=true
+    echo EDGE_USE_CDP=false
     echo EDGE_CDP_URL=http://127.0.0.1:9222
     echo.
     echo ANTHROPIC_API_KEY=
@@ -86,23 +86,18 @@ REM Always regenerate .env to ensure correct variable names
 echo       Edge path: !EDGE_DIR!
 echo.
 
-REM ---------- 5. Start tool browser (copy of your logged-in Edge) ----------
-echo [5/6] Starting Edge for the collector ...
+REM ---------- 5. Prepare tool browser profile (copy of your logged-in Edge) ----------
+echo [5/6] Preparing the collector browser profile ...
 echo.
 
 set "TOOL_PROFILE=%~dp0browser-profile"
 set "MAIN_PROFILE=%LOCALAPPDATA%\Microsoft\Edge\User Data"
 
-REM If the debug port is already live, the tool browser is open - reuse it.
-set "PORT_OK="
-powershell -NoProfile -Command "try { (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing -TimeoutSec 2) ^| Out-Null; exit 0 } catch { exit 1 }" > "%TEMP%\_amzchk" 2>&1
-if not errorlevel 1 set "PORT_OK=1"
-
-if defined PORT_OK goto :BROWSER_READY
-
 REM First time only: copy your CURRENT logged-in Edge profile (logins +
 REM SellerSprite/SIF extensions) into the tool profile, so you never log in
 REM again. The copy needs Edge closed for a moment to avoid locked files.
+REM The app itself launches this profile when collecting (no debug port needed),
+REM so it runs ALONGSIDE your normal Edge without conflicts.
 if not exist "!TOOL_PROFILE!\Default\Preferences" (
     echo   ============================================================
     echo     首次使用 / First-time setup
@@ -133,24 +128,9 @@ if not exist "!TOOL_PROFILE!\Default\Preferences" (
     echo       复制完成！你现在可以重新打开平时用的 Edge，完全不受影响。
     echo       Copy done. You can reopen your normal Edge now - unaffected.
     echo.
-)
-
-echo       正在打开采集浏览器（独立窗口，和你的主 Edge 并行，互不干扰）...
-start "" "msedge.exe" "--user-data-dir=!TOOL_PROFILE!" "--remote-debugging-port=9222" "--no-first-run" "--no-default-browser-check" "https://www.amazon.com"
-
-for /l %%i in (1,1,15) do (
-    if not defined PORT_OK (
-        powershell -NoProfile -Command "try { (Invoke-WebRequest -Uri 'http://127.0.0.1:9222/json/version' -UseBasicParsing -TimeoutSec 2) ^| Out-Null; exit 0 } catch { exit 1 }" > "%TEMP%\_amzchk" 2>&1
-        if not errorlevel 1 set "PORT_OK=1"
-        if not defined PORT_OK ping -n 2 127.0.0.1 > "%TEMP%\_amzchk" 2>&1
-    )
-)
-
-:BROWSER_READY
-if defined PORT_OK (
-    echo       采集浏览器已就绪。/ Collector browser ready.
 ) else (
-    echo       [警告] 浏览器端口未开启，请关闭所有 Edge 窗口后重试。
+    echo       采集浏览器配置已就绪（复用上次的副本）。
+    echo       Collector profile ready ^(reusing previous copy^).
 )
 echo.
 
