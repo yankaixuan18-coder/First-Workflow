@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-detail-v4"
+BUILD_VERSION = "2026-06-05-detail-v5"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -293,7 +293,9 @@ def run_collection(task_id: str, params: dict):
                     except Exception as detail_err:
                         _log(task_id, f"    详情页错误 / Detail page error: {detail_err}")
 
-            all_products.extend(page_products)
+            # Only keep up to max_products from this page
+            remaining = max_products - len(all_products)
+            all_products.extend(page_products[:remaining])
             total = len(all_products)
             _log(task_id, f"  累计采集 / Total collected: {total} 个商品")
 

@@ -309,10 +309,26 @@ def parse_product_detail(html: str, asin: str) -> dict:
         result["main_category"] = bsr_text.get("main_category", "")
         result["subcategory"] = bsr_text.get("subcategory", "")
 
-    # Date First Available
-    listing_date = _extract_detail_bullet(soup, "Date First Available")
-    if listing_date:
-        result["listing_date"] = listing_date
+    # Date First Available — try multiple label variants Amazon uses
+    for date_label in (
+        "Date First Available",
+        "Date first available",
+        "Initially available at Amazon",
+    ):
+        listing_date = _extract_detail_bullet(soup, date_label)
+        if listing_date:
+            result["listing_date"] = listing_date
+            break
+    # Also try the product information table (newer Amazon layout)
+    if not result["listing_date"]:
+        for row in soup.select("#productDetails_techSpec_section_1 tr, "
+                               "#productDetails_detailBullets_sections1 tr, "
+                               ".prodDetTable tr"):
+            th = row.select_one("th")
+            td = row.select_one("td")
+            if th and td and "first available" in th.get_text(strip=True).lower():
+                result["listing_date"] = td.get_text(strip=True)
+                break
 
     # Fulfillment
     page_text = soup.get_text(" ", strip=True).lower()
