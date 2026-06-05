@@ -264,29 +264,30 @@ def _formula(name: str, row: int, letters: dict, cost_value_keys: list) -> str:
     price  = f"{letters['price']}{row}"
     other_rev = f"{letters['other_revenue']}{row}"
 
-    # from_pct:<pct_key> — money = price × pct_input cell
+    # from_pct:<pct_key> — money = price × pct_input cell; return 0 when empty so total_cost sums cleanly
     if name.startswith("from_pct:"):
         pct_key = name[9:]
         pct_cell = f"{letters[pct_key]}{row}"
-        return f'=IF({pct_cell}="","",{price}*{pct_cell})'
+        return f'=IF(OR({pct_cell}="",{pct_cell}=0),0,{price}*{pct_cell})'
 
     if name == "referral_fee":
         # Legacy fallback — column now driven by referral_fee_pct input
         return f"={price}*0.15"
 
     if name == "total_cost":
-        # Sum only the real cost cells (money + referral_fee), skip pct columns
-        parts = "+".join(f"{letters[k]}{row}" for k in cost_value_keys)
+        # Sum only the real cost cells (money + referral_fee), skip pct columns.
+        # IFERROR handles empty/"" cells so the sum never errors.
+        parts = "+".join(f"IFERROR({letters[k]}{row}*1,0)" for k in cost_value_keys)
         return f"={parts}"
 
     if name == "total_revenue":
         return f"=SUM({price},{other_rev})"
 
     if name == "profit":
-        return f"={rev}-{cost}"
+        return f'=IF({rev}=0,"",{rev}-IFERROR({cost}*1,0))'
 
     if name == "profit_margin":
-        return f'=IF({rev}=0,"",{profit}/{rev})'
+        return f'=IF(OR({rev}=0,{rev}=""),"",({rev}-IFERROR({cost}*1,0))/{rev})'
 
     # pct:<cost_key> — percentage of selling price
     if name.startswith("pct:"):
