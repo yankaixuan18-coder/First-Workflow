@@ -97,7 +97,7 @@ echo   script will reopen it with debugging enabled.
 echo.
 
 REM Kill any lingering Edge processes that don't have the debug port
-REM (silent — if nothing to kill, that is fine)
+REM (silent - if nothing to kill, that is fine)
 taskkill /f /im msedge.exe > "%TEMP%\_amzchk" 2>&1
 
 REM Wait a moment for processes to fully exit
