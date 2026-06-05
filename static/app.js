@@ -141,6 +141,8 @@ function setProgressComplete() {
 function showDownloadButton(taskId) {
   const btn = document.getElementById('downloadBtn');
   btn.href = `/download/${taskId}`;
+  const logBtn = document.getElementById('downloadLogBtn');
+  if (logBtn) logBtn.href = `/download-log/${taskId}`;
   document.getElementById('downloadSection').classList.remove('hidden');
 }
 

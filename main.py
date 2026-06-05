@@ -51,6 +51,12 @@ tasks_lock = threading.Lock()
 
 def _new_task() -> str:
     task_id = str(uuid.uuid4())
+    # Per-task log file so the user can review / share the full operation log
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(
+        log_dir, f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{task_id[:8]}.log"
+    )
     with tasks_lock:
         tasks[task_id] = {
             "status": "running",       # running | done | error
@@ -59,19 +65,43 @@ def _new_task() -> str:
             "products": [],
             "excel_path": None,
             "error": None,
+            "log_path": log_path,      # full operation log on disk
         }
     return task_id
 
 
 def _log(task_id: str, message: str):
-    """Append a log message to both the list and the live queue."""
+    """Append a log message to the list, the live queue, and the log file."""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    line = f"[{timestamp}] {message}"
     with tasks_lock:
         task = tasks.get(task_id)
         if not task:
             return
-        task["log"].append(message)
-        task["log_queue"].put(message)
+        task["log"].append(line)
+        task["log_queue"].put(line)
+        log_path = task.get("log_path")
+    # Write to file outside the lock
+    if log_path:
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except Exception:
+            pass
     logger.info(f"[{task_id[:8]}] {message}")
+
+
+def _field_summary(product: dict, fields: list) -> str:
+    """Return a compact "✓标签 / ✗标签" summary for the given fields."""
+    parts = []
+    for key, label in fields:
+        val = product.get(key, "")
+        if val:
+            preview = str(val).replace("\n", " ")[:18]
+            parts.append(f"✓{label}={preview}")
+        else:
+            parts.append(f"✗{label}")
+    return "  ".join(parts)
 
 
 def _finish(task_id: str, excel_path: str, products: list):
@@ -134,6 +164,9 @@ def run_collection(task_id: str, params: dict):
     browser: BrowserController | None = None
 
     try:
+        with tasks_lock:
+            log_path = tasks.get(task_id, {}).get("log_path", "")
+        _log(task_id, f"日志文件 / Log file: {log_path}")
         _log(task_id, f"初始化浏览器 / Initializing browser …")
         _log(task_id, f"Edge profile: {chrome_user_data_dir} [{chrome_profile}]")
 
@@ -217,12 +250,31 @@ def run_collection(task_id: str, params: dict):
                         for key, val in detail_data.items():
                             if val:
                                 product[key] = val
+
+                        # Log which key detail fields were captured
+                        _log(task_id, "    详情页字段 / Detail fields: "
+                             + _field_summary(product, [
+                                 ("title", "标题"), ("price", "价格"),
+                                 ("bsr", "BSR"), ("listing_date", "上架"),
+                                 ("bullet_points", "卖点"),
+                                 ("all_image_urls", "图片"),
+                                 ("product_description", "描述"),
+                             ]))
+
                         # Read SellerSprite extension overlay from the live page
                         if ss_ready:
                             ss_data = _ss_adapter.extract_sync(browser.get_page(), product["asin"])
                             for key, val in ss_data.items():
                                 if val:
                                     product[key] = val
+                            _log(task_id, "    插件字段 / Plugin fields: "
+                                 + _field_summary(product, [
+                                     ("ss_monthly_sales_parent", "月销量"),
+                                     ("ss_monthly_revenue", "销售额"),
+                                     ("ss_fba_fee", "FBA费"),
+                                     ("ss_gross_margin", "毛利率"),
+                                     ("ss_total_traffic", "流量"),
+                                 ]))
                         browser.wait(config.REQUEST_DELAY_MIN, config.REQUEST_DELAY_MAX)
                     except Exception as detail_err:
                         _log(task_id, f"    详情页错误 / Detail page error: {detail_err}")
@@ -420,6 +472,26 @@ def download(task_id: str):
         as_attachment=True,
         download_name=os.path.basename(excel_path),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/download-log/<task_id>")
+def download_log(task_id: str):
+    """Download the full operation log file for a task."""
+    with tasks_lock:
+        task = tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "task not found"}), 404
+
+    log_path = task.get("log_path")
+    if not log_path or not os.path.exists(log_path):
+        return jsonify({"error": "log file not found"}), 404
+
+    return send_file(
+        log_path,
+        as_attachment=True,
+        download_name=os.path.basename(log_path),
+        mimetype="text/plain",
     )
 
 
