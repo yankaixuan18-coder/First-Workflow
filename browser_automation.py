@@ -13,6 +13,7 @@ Two launch modes:
     with --remote-debugging-port=9222. Kept as a fallback; Edge 136+ blocks the
     debug port on the default profile, which is why persistent mode is default.
 """
+import json
 import os
 import random
 import time
@@ -289,54 +290,87 @@ class BrowserController:
             pass
         return sorted(ids)
 
+    # All known selectors for the "Customers say" widget container or its
+    # summary paragraph. Order matters — more specific first.
+    _CS_WAIT_SELECTORS = [
+        "[data-hook='cr-insights-widget-aspects'] p",
+        "#cr-dp-summarization-insights-content p",
+        "#cr-summarization-insights-content p",
+        ".cr-insight-text-wrapper p",
+        "[data-hook='cr-summarization-attributes-list']",
+        ".cr-lighthouse-terms",
+        "[data-hook='cr-insights-content'] p",
+        ".cr-insights-widget-content p",
+        "[id^='cr-dp-summarization'] p",
+    ]
+
     def ensure_reviews_loaded(self) -> bool:
         """
         Scroll the 'Customers say' / reviews region into view and wait for its
         lazy-loaded AI summary to finish its async fetch.
 
-        The widget appears only on products with enough reviews (Amazon threshold
-        is typically 50+ reviews). Returns True if detected, False if absent.
+        Returns True if the widget content was detected, False if absent.
 
         Strategy:
-        1. Scroll the outer reviews section into view (so Amazon starts its XHR).
-        2. Wait up to 5 s for the inner summary paragraph to appear in the DOM.
-        3. If already absent after waiting, it's not available for this product.
+        1. Scroll the outer reviews section into view (triggers Amazon's XHR).
+        2. Wait up to 8 s via JS polling for the inner summary paragraph to
+           have non-empty text — more reliable than wait_for_selector alone,
+           which succeeds on an empty placeholder.
+        3. If still absent, try scrolling again and repeat once.
         """
         if self._page is None:
             return False
 
-        # Step 1: bring the reviews section into view to trigger lazy loads
-        anchor_selectors = [
-            "#reviewsMedley",
-            "#customer-reviews_feature_div",
-            "#reviews-medley-footer",
-        ]
-        for sel in anchor_selectors:
-            try:
-                el = self._page.query_selector(sel)
-                if el:
-                    el.scroll_into_view_if_needed(timeout=3000)
-                    time.sleep(random.uniform(1.2, 2.0))
-                    break
-            except Exception:
-                pass
+        def _scroll_to_reviews():
+            for sel in ("#reviewsMedley", "#customer-reviews_feature_div",
+                        "#reviews-medley-footer", "#customerReviews"):
+                try:
+                    el = self._page.query_selector(sel)
+                    if el:
+                        el.scroll_into_view_if_needed(timeout=3000)
+                        time.sleep(random.uniform(1.5, 2.5))
+                        return True
+                except Exception:
+                    pass
+            return False
 
-        # Step 2: wait for the "Customers say" summary content to appear
-        content_selectors = [
-            "[data-hook='cr-insights-widget-aspects'] p",
-            "#cr-dp-summarization-insights-content p",
-            "#cr-summarization-insights-content p",
-            ".cr-insight-text-wrapper p",
-            "[data-hook='cr-summarization-attributes-list']",
-            ".cr-lighthouse-terms",
-        ]
-        for sel in content_selectors:
-            try:
-                self._page.wait_for_selector(sel, timeout=5000)
-                time.sleep(random.uniform(0.8, 1.2))
-                return True
-            except Exception:
-                pass
+        def _poll_for_content(timeout_s: float) -> bool:
+            """JS-poll until one of the known selectors has non-empty innerText."""
+            selectors_js = json.dumps(self._CS_WAIT_SELECTORS)
+            check_js = (
+                "(sels) => { "
+                "  for (const s of sels) { "
+                "    const el = document.querySelector(s); "
+                "    if (el && (el.innerText || '').trim().length > 20) return s; "
+                "  } "
+                "  return null; "
+                "}"
+            )
+            deadline = time.time() + timeout_s
+            while time.time() < deadline:
+                try:
+                    hit = self._page.evaluate(f"({check_js})({selectors_js})")
+                    if hit:
+                        return True
+                except Exception:
+                    pass
+                time.sleep(0.4)
+            return False
+
+        _scroll_to_reviews()
+        if _poll_for_content(8.0):
+            time.sleep(random.uniform(0.5, 1.0))
+            return True
+
+        # Second attempt: scroll further down in case the widget is below the fold
+        try:
+            self._page.evaluate("window.scrollBy(0, window.innerHeight)")
+            time.sleep(random.uniform(1.0, 1.5))
+        except Exception:
+            pass
+        if _poll_for_content(5.0):
+            time.sleep(random.uniform(0.5, 1.0))
+            return True
 
         return False
 

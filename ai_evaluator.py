@@ -176,7 +176,6 @@ def _run(provider: str, api_key: str, model: str, system: str, prompt: str,
             _time.sleep(wait)
 
     return last_result
-    return "[未知错误]"
 
 
 def evaluate(product: dict, provider: str, api_key: str, model: str = "", timeout: int = 60) -> str:
@@ -199,11 +198,14 @@ def evaluate_market(products: list, keyword: str, provider: str, api_key: str,
 
 
 _CATEGORIZE_SYSTEM_PROMPT = (
-    "你是一位亚马逊选品专家。给定一批产品标题，请将它们归类到合适的产品小类中。\n"
+    "你是一位亚马逊选品专家。给定一批产品标题，请将它们归类到有意义的产品小类中。\n"
     "要求：\n"
-    "1. 根据产品标题的实际差异，划分出2-8个有意义的小类（如：大号保温袋/背包式保温袋/迷你保温袋/专业外卖袋 等）\n"
-    "2. 每个产品必须分配到一个类别\n"
-    "3. 严格按照以下JSON格式输出，不要有任何额外文字：\n"
+    "1. 根据产品标题的实际差异（尺寸/材质/适用人群/功能/设计特点等），划分出1-8个有意义的小类。\n"
+    "   分类示例：大号保温袋 / 背包式保温袋 / 迷你保温袋 / 成人款 / 儿童款 / 高端品牌款 等。\n"
+    "2. 每个产品必须分配到一个类别，不能遗漏。\n"
+    '3. 【重要】禁止使用「其他」「其它」「未分类」「其他产品」「杂项」等兜底类别名称。\n'
+    '   如果所有产品都很相似，就把它们全部放到同一个描述性名称的类别里。\n'
+    "4. 严格按照以下JSON格式输出，不要有任何额外文字：\n"
     '{"categories": [{"name": "类别名称", "asins": ["B0XXXXX", "B0YYYYY"]}, ...]}'
 )
 
@@ -235,20 +237,51 @@ def categorize_products(products: list, provider: str, api_key: str,
     m = _re.search(r'\{.*"categories".*\}', raw, _re.DOTALL)
     if not m:
         logger.warning(f"Categorize: no JSON found in response: {raw[:300]}")
-        return {"未分类": [p.get("asin", "") for p in products]}
+        return {"同类产品": [p.get("asin", "") for p in products]}
+
+    _CATCHALL_NAMES = {
+        "其他", "其它", "未分类", "其他类别", "其他产品", "杂项", "miscellaneous",
+        "others", "other", "uncategorized", "unclassified",
+    }
 
     try:
         data = json.loads(m.group(0))
         result = {}
+        catchall_asins = []
         for cat in data.get("categories", []):
-            name = str(cat.get("name", "未分类")).strip()
+            name = str(cat.get("name", "")).strip()
             asins = [str(a).strip() for a in cat.get("asins", []) if a]
-            if name and asins:
-                result[name] = asins
-        return result if result else {"未分类": [p.get("asin", "") for p in products]}
+            if not name or not asins:
+                continue
+            # Detect AI-created catch-all names and defer redistribution
+            if name.lower().rstrip("0123456789 、，,。.") in _CATCHALL_NAMES:
+                logger.info(f"Categorize: AI used catch-all name '{name}' with {len(asins)} asins — redistributing")
+                catchall_asins.extend(asins)
+            else:
+                result[name] = result.get(name, []) + asins
+
+        # Redistribute catch-all products: put them in the largest real category,
+        # or create one based on the first product's title if no real categories exist.
+        if catchall_asins:
+            if result:
+                # Put them in the biggest existing category
+                biggest = max(result, key=lambda k: len(result[k]))
+                result[biggest] = result[biggest] + catchall_asins
+            else:
+                # All products went to catch-all — create one descriptive category
+                first_title = ""
+                asin_to_title = {p.get("asin", ""): str(p.get("title", ""))[:40] for p in products}
+                for a in catchall_asins:
+                    if asin_to_title.get(a):
+                        first_title = asin_to_title[a]
+                        break
+                cat_name = first_title or "同类产品"
+                result[cat_name] = catchall_asins
+
+        return result if result else {"同类产品": [p.get("asin", "") for p in products]}
     except Exception as e:
         logger.warning(f"Categorize JSON parse error: {e}")
-        return {"未分类": [p.get("asin", "") for p in products]}
+        return {"同类产品": [p.get("asin", "") for p in products]}
 
 
 def _post(url: str, headers: dict, payload: dict, timeout: int) -> dict:

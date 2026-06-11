@@ -281,7 +281,7 @@ def _write_category_sheet(wb, products: list, category_map: dict, keyword: str):
                   if p.get("asin", "") and p.get("asin", "") not in assigned]
     if unassigned:
         category_map = dict(category_map)  # don't mutate caller's dict
-        category_map["未分类 Uncategorized"] = unassigned
+        category_map["其他 Others"] = unassigned
 
     cs = wb.create_sheet(title="产品分类 Category")
     cs.column_dimensions["A"].width = 12   # ASIN
