@@ -34,10 +34,14 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 # ── Logistics estimation constants ───────────────────────────────────────────
-SEA_FREIGHT_RATE   = 3.5    # USD per kg  (sea freight China→US, typical mid-2025)
-STORAGE_RATE       = 0.87   # USD per cubic foot per month  (Amazon Jan-Sep non-peak)
-# Amazon 2024 inbound placement fee (minimal-split tier, standard size)
+SEA_FREIGHT_RATE   = 1.4    # USD per kg  (air/express rate; volumetric vs actual, take max)
+# Amazon storage fee (off-peak Jan-Sep, updated April 2024)
+STORAGE_RATE_STD   = 0.78   # standard size (all dims ≤ 12 in AND weight ≤ 20 lbs)
+STORAGE_RATE_LARGE = 0.56   # large / oversized
+# Amazon 2024 inbound placement fee (minimal-split tier)
 _INBOUND_TIERS = [(0.45, 0.21), (0.90, 0.27), (float("inf"), 0.30)]
+# Divisor for volumetric weight when input is in cm (industry standard)
+_VOL_DIVISOR_CM3 = 6000.0
 
 
 def _parse_weight_kg(raw: str) -> float | None:
@@ -100,22 +104,44 @@ def _estimate_logistics(product: dict) -> dict:
     Return estimated freight_cost, storage_fee, other_cost (inbound placement)
     based on package_weight and package_dimensions.  Returns {} when data is
     insufficient so the caller can skip pre-filling.
+
+    头程运费:  volumetric weight (L×W×H in cm / 6000) vs actual weight → take max → ×$1.4/kg
+    仓储费:    package volume in ft³ × rate (standard $0.78, large $0.56 off-peak)
+    入库配置费: Amazon 2024 weight-tier flat fee
     """
-    kg = _parse_weight_kg(product.get("package_weight") or product.get("item_weight") or "")
-    dims = _parse_dimensions_in(product.get("package_dimensions") or product.get("product_dimensions") or "")
+    raw_w = product.get("package_weight") or product.get("item_weight") or ""
+    raw_d = product.get("package_dimensions") or product.get("product_dimensions") or ""
+
+    kg = _parse_weight_kg(raw_w)
+    dims_in = _parse_dimensions_in(raw_d)  # already in inches
 
     result = {}
-    if kg is not None:
+
+    if kg is not None and dims_in is not None:
+        l_in, w_in, h_in = dims_in
+        # Convert dimensions to cm for volumetric weight formula
+        l_cm = l_in * 2.54
+        w_cm = w_in * 2.54
+        h_cm = h_in * 2.54
+        vol_weight_kg = (l_cm * w_cm * h_cm) / _VOL_DIVISOR_CM3
+        billable_kg = max(kg, vol_weight_kg)
+        result["freight_cost"] = round(billable_kg * SEA_FREIGHT_RATE, 2)
+
+        # Storage: standard vs large size
+        vol_ft3 = (l_in * w_in * h_in) / 1728.0
+        is_standard = (l_in <= 12 and w_in <= 12 and h_in <= 12 and kg <= 9.07)
+        rate = STORAGE_RATE_STD if is_standard else STORAGE_RATE_LARGE
+        result["storage_fee"] = round(vol_ft3 * rate, 2)
+
+    elif kg is not None:
+        # No dimension data — estimate freight from weight only (no volumetric check)
         result["freight_cost"] = round(kg * SEA_FREIGHT_RATE, 2)
+
+    if kg is not None:
         for limit, fee in _INBOUND_TIERS:
             if kg <= limit:
                 result["other_cost"] = fee
                 break
-
-    if dims is not None:
-        l, w, h = dims
-        vol_ft3 = (l * w * h) / 1728.0   # 1728 in³ per ft³
-        result["storage_fee"] = round(vol_ft3 * STORAGE_RATE, 2)
 
     return result
 
@@ -301,18 +327,22 @@ def export(products: list, output_path: str,
         row_idx = offset + 3
         fill = ROW_FILL_A if offset % 2 == 0 else ROW_FILL_B
 
-        # Pre-fill logistics estimates when the user hasn't supplied values.
-        # Only touch cells that are genuinely empty so manual inputs win.
-        logistics = _estimate_logistics(product)
-        for cost_key, est_val in logistics.items():
-            if not product.get(cost_key):
-                product[cost_key] = est_val
+        # Logistics estimates: computed once per row, used as fallback when the
+        # scraped product dict has no value for that cost key.  Written directly
+        # into the cell rather than mutating the product dict to avoid any
+        # dict-reference aliasing surprises.
+        logistics_est = _estimate_logistics(product)
 
         for col_idx, (key, _header, kind, _grp) in enumerate(COLUMNS, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
 
             if kind == "money":
-                cell.value = _parse_money(product.get(key))
+                # Use scraped value when present; fall back to logistics estimate.
+                scraped = _parse_money(product.get(key))
+                if scraped is not None:
+                    cell.value = scraped
+                elif key in logistics_est:
+                    cell.value = logistics_est[key]
                 cell.number_format = MONEY_FMT
             elif kind.startswith("pct_input:"):
                 # User-editable percentage cell. Pre-fill with default decimal value.
