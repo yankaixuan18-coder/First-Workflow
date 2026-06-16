@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-05-cat-v20"
+BUILD_VERSION = "2026-06-16-logistics-v21"
 
 # -------------------------------------------------------------------------
 # In-memory task store

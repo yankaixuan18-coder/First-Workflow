@@ -12,6 +12,19 @@ The sheet has two header rows:
 Cost / revenue items are ALWAYS listed even when we cannot scrape them, so
 the user can fill the blanks in later. Profit and profit margin are live
 Excel formulas, so editing any cost/revenue cell recalculates automatically.
+
+Logistics cost auto-estimation
+-------------------------------
+When package_weight and package_dimensions are available (from SellerSprite),
+freight_cost, storage_fee, and other_cost (inbound placement fee) are
+pre-filled with estimates so the profit formula is useful from the start.
+The user can override any cell; formulas downstream recalculate instantly.
+
+Estimation rules (all per unit):
+  头程运费  = package_weight_kg × SEA_FREIGHT_RATE_PER_KG   (default $3.5/kg)
+  仓储费    = package_volume_ft³ × STORAGE_RATE_PER_CUFT    (default $0.87/ft³/month)
+  入库配置费 = weight tier: ≤0.45 kg→$0.21, ≤0.9→$0.27, else→$0.30
+               (Amazon 2024 inbound placement fee, minimal-split tier)
 """
 import os
 import re
@@ -19,6 +32,93 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+# ── Logistics estimation constants ───────────────────────────────────────────
+SEA_FREIGHT_RATE   = 3.5    # USD per kg  (sea freight China→US, typical mid-2025)
+STORAGE_RATE       = 0.87   # USD per cubic foot per month  (Amazon Jan-Sep non-peak)
+# Amazon 2024 inbound placement fee (minimal-split tier, standard size)
+_INBOUND_TIERS = [(0.45, 0.21), (0.90, 0.27), (float("inf"), 0.30)]
+
+
+def _parse_weight_kg(raw: str) -> float | None:
+    """
+    Parse a weight string into kilograms.  Handles all formats seen in the wild:
+      "2.31 pounds (1.05 kg)"   → 1.05
+      "3.17 ounces (89.87 g)"   → 0.08987
+      "140 g (140.00 g)"        → 0.140
+      "0.22 pounds"             → 0.0998
+      "1.05 kg"                 → 1.05
+    Priority: parenthetical SI value > explicit unit.
+    """
+    if not raw:
+        return None
+    # 1. Parenthetical SI value: "(1.05 kg)" or "(89.87 g)"
+    m = re.search(r'\((\d+\.?\d*)\s*(kg|g)\)', raw, re.I)
+    if m:
+        v, unit = float(m.group(1)), m.group(2).lower()
+        return v if unit == "kg" else v / 1000
+
+    # 2. Explicit unit without parentheses
+    m = re.search(r'(\d+\.?\d*)\s*(kg|g|pounds?|lbs?|ounces?|oz)', raw, re.I)
+    if not m:
+        return None
+    v, unit = float(m.group(1)), m.group(2).lower()
+    if unit in ("kg",):
+        return v
+    if unit in ("g",):
+        return v / 1000
+    if unit.startswith("pound") or unit.startswith("lb"):
+        return v * 0.453592
+    if unit.startswith("ounce") or unit == "oz":
+        return v * 0.0283495
+    return None
+
+
+def _parse_dimensions_in(raw: str) -> tuple[float, float, float] | None:
+    """
+    Parse a dimensions string into (L, W, H) in inches.  Handles:
+      "16.9 x 12.3 x 2.2 inches"
+      "42.9 x 31.2 x 5.6 cm"
+      "16.9 x 12.3 x 2.2"          (assume inches when no unit)
+    Returns None when fewer than three numbers are found.
+    """
+    if not raw:
+        return None
+    nums = re.findall(r'\d+\.?\d*', raw)
+    if len(nums) < 3:
+        return None
+    l, w, h = float(nums[0]), float(nums[1]), float(nums[2])
+    unit_m = re.search(r'\b(inches?|in\b|cm|centimeters?)\b', raw, re.I)
+    unit = unit_m.group(1).lower() if unit_m else "in"
+    if unit.startswith("cm") or unit.startswith("cent"):
+        l, w, h = l / 2.54, w / 2.54, h / 2.54
+    return l, w, h
+
+
+def _estimate_logistics(product: dict) -> dict:
+    """
+    Return estimated freight_cost, storage_fee, other_cost (inbound placement)
+    based on package_weight and package_dimensions.  Returns {} when data is
+    insufficient so the caller can skip pre-filling.
+    """
+    kg = _parse_weight_kg(product.get("package_weight") or product.get("item_weight") or "")
+    dims = _parse_dimensions_in(product.get("package_dimensions") or product.get("product_dimensions") or "")
+
+    result = {}
+    if kg is not None:
+        result["freight_cost"] = round(kg * SEA_FREIGHT_RATE, 2)
+        for limit, fee in _INBOUND_TIERS:
+            if kg <= limit:
+                result["other_cost"] = fee
+                break
+
+    if dims is not None:
+        l, w, h = dims
+        vol_ft3 = (l * w * h) / 1728.0   # 1728 in³ per ft³
+        result["storage_fee"] = round(vol_ft3 * STORAGE_RATE, 2)
+
+    return result
+
 
 # Each column: (key, header, kind, group)
 #   kind: "text"  -> raw string
@@ -72,16 +172,18 @@ COLUMNS = [
 
     # ---------------- 成本项 Costs (per unit) ----------------
     # 金额已知类：填金额 → 公式算占比
-    ("product_cost",             "采购成本(Product Cost)",          "money",                      G_COST),
-    ("product_cost_pct",         "采购占比%",                       "formula:pct:product_cost",   G_COST),
-    ("freight_cost",             "头程运费(Freight)",               "money",                      G_COST),
-    ("freight_cost_pct",         "头程占比%",                       "formula:pct:freight_cost",   G_COST),
-    ("ss_fba_fee",               "FBA配送费(FBA Fee)",              "money",                      G_COST),
-    ("ss_fba_fee_pct",           "FBA占比%",                        "formula:pct:ss_fba_fee",     G_COST),
-    ("storage_fee",              "仓储费(Storage Fee)",            "money",                      G_COST),
-    ("storage_fee_pct",          "仓储占比%",                       "formula:pct:storage_fee",    G_COST),
-    ("other_cost",               "其他成本(Other Cost)",           "money",                      G_COST),
-    ("other_cost_pct",           "其他占比%",                       "formula:pct:other_cost",     G_COST),
+    # freight_cost / storage_fee / other_cost are auto-estimated from
+    # package_weight & package_dimensions; user can overwrite any cell.
+    ("product_cost",             "采购成本(Product Cost)",              "money",                      G_COST),
+    ("product_cost_pct",         "采购占比%",                           "formula:pct:product_cost",   G_COST),
+    ("freight_cost",             "头程运费(Freight)★估",               "money",                      G_COST),
+    ("freight_cost_pct",         "头程占比%",                           "formula:pct:freight_cost",   G_COST),
+    ("ss_fba_fee",               "FBA配送费(FBA Fee)",                  "money",                      G_COST),
+    ("ss_fba_fee_pct",           "FBA占比%",                            "formula:pct:ss_fba_fee",     G_COST),
+    ("storage_fee",              "仓储费(Storage Fee)★估",             "money",                      G_COST),
+    ("storage_fee_pct",          "仓储占比%",                           "formula:pct:storage_fee",    G_COST),
+    ("other_cost",               "入库配置费(Inbound Fee)★估",         "money",                      G_COST),
+    ("other_cost_pct",           "入库费占比%",                         "formula:pct:other_cost",     G_COST),
     # 占比已知类：填占比% → 公式算金额
     ("referral_fee_pct",         "平台佣金占比%(填小数如0.15)",      "pct_input:0.15",             G_COST),
     ("referral_fee",             "平台佣金(Referral Fee)",          "formula:from_pct:referral_fee_pct", G_COST),
@@ -198,6 +300,14 @@ def export(products: list, output_path: str,
     for offset, product in enumerate(products):
         row_idx = offset + 3
         fill = ROW_FILL_A if offset % 2 == 0 else ROW_FILL_B
+
+        # Pre-fill logistics estimates when the user hasn't supplied values.
+        # Only touch cells that are genuinely empty so manual inputs win.
+        logistics = _estimate_logistics(product)
+        for cost_key, est_val in logistics.items():
+            if not product.get(cost_key):
+                product[cost_key] = est_val
+
         for col_idx, (key, _header, kind, _grp) in enumerate(COLUMNS, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
 
