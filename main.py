@@ -27,7 +27,10 @@ from amazon_scraper import (
     build_search_url,
     build_paginated_url,
     is_category_url,
+    is_bsr_url,
+    build_bsr_url,
     parse_search_results,
+    parse_bsr_page,
     parse_product_detail,
 )
 from exporters.excel_exporter import export as export_excel, generate_output_filename
@@ -44,7 +47,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Bump this whenever collection logic changes so logs identify the running code.
-BUILD_VERSION = "2026-06-16-logistics-v22"
+BUILD_VERSION = "2026-06-22-bsr-v23"
 
 # -------------------------------------------------------------------------
 # In-memory task store
@@ -293,8 +296,9 @@ def run_collection(task_id: str, params: dict):
                 _log(task_id, "▶️ 等待超时，自动继续 / Resume timed out, continuing.")
 
         # Determine whether input is a URL or a keyword
+        is_bsr = False
         if keyword_or_url.startswith("http://") or keyword_or_url.startswith("https://"):
-            # Reject individual product pages — tool only works on search/category pages
+            # Reject individual product pages — tool only works on search/category/BSR pages
             if "/dp/" in keyword_or_url or "/gp/product/" in keyword_or_url:
                 _log(task_id, "❌ 错误 / Error: 请输入搜索关键词或搜索结果页面链接，不支持单个商品详情页链接（含 /dp/）。")
                 _log(task_id, "   提示 / Tip: 例如输入关键词 'camping cot'，或粘贴 Amazon 搜索结果页链接（含 /s?k=）。")
@@ -302,7 +306,11 @@ def run_collection(task_id: str, params: dict):
                 return
             base_url = keyword_or_url
             is_keyword = False
-            _log(task_id, f"模式: URL采集 / Mode: URL scraping — {base_url}")
+            if is_bsr_url(keyword_or_url):
+                is_bsr = True
+                _log(task_id, f"模式: BSR榜单采集 / Mode: Best Sellers scraping — {base_url}")
+            else:
+                _log(task_id, f"模式: URL采集 / Mode: URL scraping — {base_url}")
         else:
             base_url = None
             is_keyword = True
@@ -344,6 +352,8 @@ def run_collection(task_id: str, params: dict):
         for page_num in range(1, max_pages + 1):
             if is_keyword:
                 page_url = build_search_url(keyword_or_url, marketplace_url, page_num)
+            elif is_bsr:
+                page_url = build_bsr_url(base_url, page_num)
             else:
                 page_url = build_paginated_url(base_url, page_num)
 
@@ -369,7 +379,10 @@ def run_collection(task_id: str, params: dict):
 
             _log(task_id, f"  已获取页面HTML ({len(html)} 字符)，开始解析 / Got HTML, parsing …")
 
-            page_products = parse_search_results(html, page_url, page_num)
+            if is_bsr:
+                page_products = parse_bsr_page(html, page_url, page_num)
+            else:
+                page_products = parse_search_results(html, page_url, page_num)
             _log(task_id, f"  解析到 {len(page_products)} 个商品 / Parsed {len(page_products)} products")
 
             if not page_products:

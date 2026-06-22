@@ -610,3 +610,208 @@ def build_paginated_url(url: str, page: int) -> str:
     params["page"] = [str(page)]
     new_query = urllib.parse.urlencode(params, doseq=True)
     return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Best Sellers (BSR) page support
+# Amazon BSR URL pattern:  /zgbs/<dept>/<node>  or  /gp/bestsellers/<dept>/<node>
+# Pagination: append ?pg=2 (not &page=2 like search results)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def is_bsr_url(url: str) -> bool:
+    """Return True if the URL is an Amazon Best Sellers page."""
+    return "/zgbs/" in url or "/gp/bestsellers/" in url
+
+
+def build_bsr_url(base_url: str, page: int) -> str:
+    """
+    Return the BSR URL for a given page number.
+    Page 1 → base URL unchanged.
+    Page 2+ → add / update the ?pg= query parameter.
+    """
+    if page <= 1:
+        # Remove any stale ?pg= from the pasted URL
+        parsed = urllib.parse.urlparse(base_url)
+        params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        params.pop("pg", None)
+        new_q = urllib.parse.urlencode(params, doseq=True)
+        return urllib.parse.urlunparse(parsed._replace(query=new_q))
+
+    parsed = urllib.parse.urlparse(base_url)
+    params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+    params["pg"] = [str(page)]
+    new_q = urllib.parse.urlencode(params, doseq=True)
+    return urllib.parse.urlunparse(parsed._replace(query=new_q))
+
+
+def parse_bsr_page(html: str, page_url: str, page_num: int) -> list:
+    """
+    Parse an Amazon Best Sellers page and return a list of product dicts in
+    rank order.  BSR pages use a completely different HTML structure from
+    search result pages, so this is a separate parser.
+
+    Rank offset: page 1 has ranks #1-#50, page 2 has #51-#100.
+
+    Tries multiple selector strategies in order — Amazon A/B-tests its BSR
+    layout frequently, so we cascade through known variants.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    parsed = urllib.parse.urlparse(page_url)
+    marketplace_base = f"{parsed.scheme}://{parsed.netloc}"
+    rank_offset = (page_num - 1) * 50
+
+    products = []
+
+    # ── Strategy 1: new grid layout (2023+) ─────────────────────────────────
+    # Each product is in a div[id^="gridItemRoot"] containing a div[data-asin]
+    grid_items = soup.select('[id^="gridItemRoot"]')
+
+    # ── Strategy 2: legacy list layout ──────────────────────────────────────
+    if not grid_items:
+        grid_items = soup.select('li[class*="zg-item-immersion"]')
+
+    # ── Strategy 3: p13n carousel cards ─────────────────────────────────────
+    if not grid_items:
+        grid_items = soup.select('div[class*="p13n-asin"]')
+
+    logger.info(f"BSR page {page_num}: found {len(grid_items)} items via selector")
+
+    for pos, item in enumerate(grid_items, start=1):
+        # ASIN — check common locations
+        asin = ""
+        # a) data-asin on a child div
+        asin_el = item.select_one("[data-asin]")
+        if asin_el:
+            asin = asin_el.get("data-asin", "").strip()
+        # b) JSON in data-p13n-asin-metadata attribute
+        if not asin:
+            meta_el = item.select_one("[data-p13n-asin-metadata]")
+            if meta_el:
+                import json as _json
+                try:
+                    meta = _json.loads(meta_el.get("data-p13n-asin-metadata", "{}"))
+                    asin = meta.get("asin", "")
+                except Exception:
+                    pass
+        # c) product link href
+        if not asin:
+            link = item.select_one("a[href*='/dp/']")
+            if link:
+                m = re.search(r"/dp/([A-Z0-9]{10})", link.get("href", ""))
+                if m:
+                    asin = m.group(1)
+        if not asin:
+            continue
+
+        rank_num = rank_offset + pos
+        bsr_rank = f"#{rank_num:,}"
+
+        product = {
+            "asin": asin,
+            "title": "",
+            "brand": "",
+            "price": "",
+            "rating": "",
+            "review_count": "",
+            "main_image_url": "",
+            "product_url": f"{marketplace_base}/dp/{asin}",
+            "coupon_discount": "",
+            "fulfillment": "",
+            "seller_name": "",
+            "bsr": bsr_rank,
+            "main_category": "",
+            "subcategory": "",
+            "listing_date": "",
+            "bullet_points": "",
+            "product_description": "",
+            "customers_say_summary": "",
+            "customers_say_topics": "",
+            "all_image_urls": "",
+            "item_weight": "",
+            "product_dimensions": "",
+            "package_weight": "",
+            "package_dimensions": "",
+            "variation_count": "",
+            "ss_style": "",
+            "fulfillment": "",
+            "ss_shipping_days": "",
+            "page_number": page_num,
+            "collection_timestamp": timestamp,
+            "source_url": page_url,
+        }
+
+        # Title — try BSR-specific selectors first, then generic
+        for sel in (
+            "._cDEzb_p13n-sc-css-line-clamp-3_g3dy1",
+            "._cDEzb_p13n-sc-css-line-clamp-4_2q2cc",
+            "div.p13n-sc-truncated",
+            "span.p13n-sc-truncated",
+            "[class*='p13n-sc-truncated']",
+            "[class*='line-clamp']",
+            "h2 span",
+            "h2",
+        ):
+            el = item.select_one(sel)
+            if el:
+                t = el.get_text(" ", strip=True)
+                if t and len(t) > 3:
+                    product["title"] = t
+                    break
+
+        # Price — BSR uses p13n-sc-price span
+        for price_sel in (
+            "span.p13n-sc-price",
+            "._cDEzb_p13n-sc-css-line-clamp-1_1Fn7T span.a-offscreen",
+            ".a-price .a-offscreen",
+            "span.a-price-whole",
+        ):
+            el = item.select_one(price_sel)
+            if el:
+                t = el.get_text(strip=True)
+                if t:
+                    product["price"] = t
+                    break
+
+        # Rating
+        for rsel in (
+            "span.a-icon-alt",
+            "[aria-label*='stars']",
+            "[aria-label*='out of 5']",
+        ):
+            el = item.select_one(rsel)
+            if el:
+                aria = el.get("aria-label", "") or el.get_text(strip=True)
+                if "star" in aria.lower() or "out of" in aria.lower():
+                    product["rating"] = aria
+                    break
+
+        # Review count
+        for rcsel in (
+            "span.a-size-small[aria-label]",
+            "span[aria-label*=',']",
+            "a span.a-size-small",
+            "div[class*='review'] span",
+        ):
+            el = item.select_one(rcsel)
+            if el:
+                aria = el.get("aria-label", "") or el.get_text(strip=True)
+                # should look like "30,101" or "30,101 ratings"
+                m = re.search(r"[\d,]+", aria.replace(".", ","))
+                if m and int(m.group(0).replace(",", "")) > 0:
+                    product["review_count"] = m.group(0)
+                    break
+
+        # Main image
+        img = item.select_one("img[src]")
+        if img:
+            src = img.get("src", "")
+            # Prefer data-src or srcset for higher-res
+            src = img.get("data-src", src) or src
+            product["main_image_url"] = src
+            product["all_image_urls"] = src
+
+        products.append(product)
+
+    logger.info(f"BSR page {page_num}: parsed {len(products)} products")
+    return products
